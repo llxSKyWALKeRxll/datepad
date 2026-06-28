@@ -42,7 +42,9 @@ So reminders are **server-driven**:
 pg_cron (daily)  →  Edge Function "send-reminders"  →  Expo Push (FCM + APNs)  →  device
 ```
 
-A daily scheduled job queries "whose reminders fire today?" (a relational range query over people ↔ dates ↔ reminder_rules) and sends the pushes. Optionally, near-term reminders are *also* scheduled as local notifications for redundancy, with the server push as source of truth.
+A daily scheduled job queries "whose reminders fire today?" and sends the pushes. Optionally, near-term reminders are *also* scheduled as local notifications for redundancy, with the server push as source of truth.
+
+**Implemented (server side):** each date carries `lead_days` (default `{7,1,0}`) and a `reminders_enabled` flag. The SQL function `reminders_due(p_today)` returns every date whose next annual occurrence minus today lands on one of its lead days. The `send-reminders` edge function calls it, joins each owner's `push_tokens`, builds the message copy, and posts to the Expo Push API (accepts `{ "today", "dryRun" }` overrides for testing). `pg_cron` invokes it daily at 09:00 UTC, reading the function URL + service key from Vault. Still TODO: the client registering its Expo push token and a per-date lead-time editor.
 
 ## Tech Stack
 
@@ -145,7 +147,7 @@ Mailpit at <http://127.0.0.1:54424>.
 - [x] Native Android dev build
 - [x] Real date picker (native calendar + time picker)
 - [x] Supabase persistence + auth (email OTP, optional, local fallback + migrate-on-sign-in)
-- [ ] Advance-notice notification engine (pg_cron → Edge Function → Expo Push)
+- [~] Advance-notice notification engine — server side done (pg_cron → `send-reminders` → Expo Push); client push-token registration + per-date lead-time UI still TODO
 - [ ] Premium tier (unlimited + gift ideas + message drafts)
 - [ ] iOS build
 

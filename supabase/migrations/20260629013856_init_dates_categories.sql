@@ -45,5 +45,8 @@ create policy "dates are private to their owner"
 
 -- Signed-in users operate on these tables (RLS still scopes rows to them).
 -- anon (signed-out) never touches the cloud — it uses local storage instead.
+-- service_role (the reminders job) reads across all users, bypassing RLS.
 grant select, insert, update, delete on public.categories to authenticated;
 grant select, insert, update, delete on public.important_dates to authenticated;
+grant select, insert, update, delete on public.categories to service_role;
+grant select, insert, update, delete on public.important_dates to service_role;
