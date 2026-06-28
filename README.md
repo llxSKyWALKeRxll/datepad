@@ -97,22 +97,43 @@ datepad/
    └─ config.toml
 ```
 
+## Running locally
+
+This is an Expo **development build** (installed natively, not Expo Go):
+
+```bash
+npm install
+npm run android   # builds + installs the dev APK, then starts Metro
+```
+
+On Windows, build through a short path (e.g. a `C:\dp` junction to this repo) to
+avoid MAX_PATH issues during the Gradle build. The generated `android/` folder is
+gitignored — it's regenerated from `app.json` via Expo prebuild.
+
 ## Roadmap
 
-- [ ] Write full spec
-- [ ] Data model (people, dates, reminder rules)
+- [x] Scaffold base app (Expo Router, Coral theme)
+- [x] Upcoming list + date detail + edit + delete
+- [x] Custom tags/categories with inline "create on the spot"
+- [x] Local persistence (AsyncStorage) — the seam we'll swap for Supabase
+- [x] Native Android dev build
+- [ ] Real date picker (currently MM/DD/YYYY inputs)
+- [ ] Supabase persistence + auth
 - [ ] Advance-notice notification engine (pg_cron → Edge Function → Expo Push)
-- [ ] MVP build (add dates + reminders + upcoming view)
 - [ ] Premium tier (unlimited + gift ideas + message drafts)
 - [ ] iOS build
 
 ## Status
 
-Early — moving from idea to spec. Name, tagline, stack, and architecture locked:
+MVP shell working on-device. Name, tagline, stack, and architecture locked:
 
 - **Name:** DatePad
 - **Tagline:** *Never forget a date that matters.*
 - **Repo:** https://github.com/llxSKyWALKeRxll/datepad
+
+Local data model (current): `dates` (name, categoryId, month/day, optional year,
+note) + `categories` (built-in + user-created tags). The Supabase schema above is
+the next step; screens already read/write through a single `useStore()` seam.
 
 ---
 

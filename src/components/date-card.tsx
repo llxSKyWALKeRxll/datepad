@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import {
@@ -6,34 +7,29 @@ import {
   daysUntilNext,
   formatDate,
   ImportantDate,
-  typeLabel,
-  upcomingYears,
   urgencyColor,
+  yearsPhrase,
 } from '@/lib/dates';
+import { useStore } from '@/lib/store';
 
-const TYPE_EMOJI: Record<ImportantDate['type'], string> = {
-  birthday: '🎂',
-  anniversary: '💞',
-  custom: '📌',
-};
+export function DateCard({ date, onPress }: { date: ImportantDate; onPress?: () => void }) {
+  const { getCategory } = useStore();
+  const category = getCategory(date.categoryId);
 
-export function DateCard({ date }: { date: ImportantDate }) {
   const days = daysUntilNext(date);
   const color = urgencyColor(days);
-  const years = upcomingYears(date);
+  const years = yearsPhrase(date, category);
 
-  const yearsSuffix =
-    years === undefined
-      ? ''
-      : date.type === 'birthday'
-        ? ` · turns ${years}`
-        : ` · ${years} ${years === 1 ? 'year' : 'years'}`;
-  const subtitle = `${typeLabel(date.type)}${yearsSuffix}`;
+  const subtitle = [category?.label ?? 'Date', years, formatDate(date)]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
-    <View style={styles.card}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
       <View style={styles.emojiWrap}>
-        <Text style={styles.emoji}>{TYPE_EMOJI[date.type]}</Text>
+        <Text style={styles.emoji}>{category?.emoji ?? '📌'}</Text>
       </View>
 
       <View style={styles.middle}>
@@ -41,14 +37,15 @@ export function DateCard({ date }: { date: ImportantDate }) {
           {date.name}
         </Text>
         <Text style={styles.sub} numberOfLines={1}>
-          {subtitle} · {formatDate(date)}
+          {subtitle}
         </Text>
       </View>
 
       <View style={[styles.badge, { backgroundColor: color }]}>
         <Text style={styles.badgeText}>{countdownLabel(days)}</Text>
       </View>
-    </View>
+      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+    </Pressable>
   );
 }
 
@@ -61,8 +58,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     padding: Spacing.md,
-    gap: Spacing.md,
+    gap: Spacing.sm,
   },
+  pressed: { opacity: 0.7 },
   emojiWrap: {
     width: 44,
     height: 44,
@@ -72,7 +70,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emoji: { fontSize: 22 },
-  middle: { flex: 1 },
+  middle: { flex: 1, marginLeft: 4 },
   name: { fontSize: 17, fontWeight: '700', color: Colors.text },
   sub: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
   badge: {

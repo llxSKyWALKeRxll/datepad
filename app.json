@@ -11,6 +11,7 @@
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.datepad.app",
       "adaptiveIcon": {
         "backgroundColor": "#FFF7F2",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

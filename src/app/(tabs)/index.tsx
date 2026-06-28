@@ -7,18 +7,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DateCard } from '@/components/date-card';
 import { PrimaryButton } from '@/components/primary-button';
 import { Colors, Spacing } from '@/constants/theme';
-import { daysUntilNext, sampleDates } from '@/lib/dates';
+import { daysUntilNext } from '@/lib/dates';
+import { useStore } from '@/lib/store';
 
 export default function UpcomingScreen() {
   const insets = useSafeAreaInsets();
+  const { dates, loaded } = useStore();
 
-  // Sorted by soonest. In-memory sample data for the base build.
-  const dates = useMemo(
-    () => [...sampleDates()].sort((a, b) => daysUntilNext(a) - daysUntilNext(b)),
-    [],
+  const sorted = useMemo(
+    () => [...dates].sort((a, b) => daysUntilNext(a) - daysUntilNext(b)),
+    [dates],
   );
 
-  const isEmpty = dates.length === 0;
+  const isEmpty = loaded && sorted.length === 0;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -56,12 +57,13 @@ export default function UpcomingScreen() {
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}>
           <Text style={styles.sectionLabel}>UPCOMING</Text>
-          {dates.map((d) => (
-            <DateCard key={d.id} date={d} />
+          {sorted.map((d) => (
+            <DateCard
+              key={d.id}
+              date={d}
+              onPress={() => router.push({ pathname: '/date/[id]', params: { id: d.id } })}
+            />
           ))}
-          <Text style={styles.footnote}>
-            Sample data — add your own with the + button.
-          </Text>
         </ScrollView>
       )}
     </View>
@@ -94,12 +96,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     color: Colors.textMuted,
     marginBottom: 2,
-  },
-  footnote: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    marginTop: Spacing.sm,
   },
   empty: {
     flex: 1,
