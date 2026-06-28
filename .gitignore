@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+.expo-shared/
+dist/
+web-build/
+*.orig.*
+
+# Native
+ios/
+android/
+*.keystore
+*.jks
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Supabase
+supabase/.branches
+supabase/.temp
+
+# Logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
