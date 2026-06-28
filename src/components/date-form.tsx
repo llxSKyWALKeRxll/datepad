@@ -1,11 +1,14 @@
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -14,8 +17,35 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/primary-button';
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { ImportantDate, isValidMonthDay, isValidTime } from '@/lib/dates';
+import { ImportantDate } from '@/lib/dates';
 import { useStore } from '@/lib/store';
+
+const FULL_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** A Date whose month/day (and year when known) seed the picker. */
+function seedDate(existing?: ImportantDate): Date {
+  const now = new Date();
+  if (!existing) return now;
+  return new Date(existing.year ?? now.getFullYear(), existing.month - 1, existing.day);
+}
+
+/** A Date carrying the existing time-of-day, or a sensible default (9:00 AM). */
+function seedTime(existing?: ImportantDate): Date {
+  const d = new Date();
+  d.setHours(existing?.hour ?? 9, existing?.minute ?? 0, 0, 0);
+  return d;
+}
+
+function formatTimeOfDay(d: Date): string {
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h < 12 ? 'AM' : 'PM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
 
 export function DateForm({ existing }: { existing?: ImportantDate }) {
   const insets = useSafeAreaInsets();
@@ -24,19 +54,34 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
   const isEdit = !!existing;
   const [name, setName] = useState(existing?.name ?? '');
   const [categoryId, setCategoryId] = useState(existing?.categoryId ?? categories[0]?.id ?? 'birthday');
-  const [month, setMonth] = useState(existing ? String(existing.month) : '');
-  const [day, setDay] = useState(existing ? String(existing.day) : '');
-  const [year, setYear] = useState(existing?.year ? String(existing.year) : '');
-  const [hour, setHour] = useState(existing?.hour != null ? String(existing.hour) : '');
-  const [minute, setMinute] = useState(
-    existing?.hour != null ? String(existing.minute ?? 0).padStart(2, '0') : '',
-  );
+
+  const [dateValue, setDateValue] = useState<Date>(() => seedDate(existing));
+  const [includeYear, setIncludeYear] = useState<boolean>(existing?.year != null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const [timeEnabled, setTimeEnabled] = useState<boolean>(existing?.hour != null);
+  const [timeValue, setTimeValue] = useState<Date>(() => seedTime(existing));
+  const [showTimePicker, setShowTimePicker] = useState(false);
+
   const [note, setNote] = useState(existing?.note ?? '');
 
   // Inline "new tag" state
   const [creatingTag, setCreatingTag] = useState(false);
   const [newTagLabel, setNewTagLabel] = useState('');
   const [newTagEmoji, setNewTagEmoji] = useState('');
+
+  function onDateChange(event: DateTimePickerEvent, picked?: Date) {
+    // Android fires once and dismisses itself; iOS stays open (inline spinner).
+    if (Platform.OS !== 'ios') setShowDatePicker(false);
+    if (event.type === 'dismissed' || !picked) return;
+    setDateValue(picked);
+  }
+
+  function onTimeChange(event: DateTimePickerEvent, picked?: Date) {
+    if (Platform.OS !== 'ios') setShowTimePicker(false);
+    if (event.type === 'dismissed' || !picked) return;
+    setTimeValue(picked);
+  }
 
   function confirmNewTag() {
     if (!newTagLabel.trim()) {
@@ -51,39 +96,29 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
   }
 
   function onSave() {
-    const m = parseInt(month, 10);
-    const d = parseInt(day, 10);
-    const y = year.trim() ? parseInt(year, 10) : undefined;
-    if (!name.trim() || !isValidMonthDay(m, d)) {
-      Alert.alert('Almost there', 'Add a name and a valid month (1–12) and day (1–31).');
+    if (!name.trim()) {
+      Alert.alert('Almost there', 'Add a name so you know who or what this date is for.');
       return;
-    }
-
-    let hh: number | undefined;
-    let mm: number | undefined;
-    if (hour.trim()) {
-      hh = parseInt(hour, 10);
-      mm = minute.trim() ? parseInt(minute, 10) : 0;
-      if (!isValidTime(hh, mm)) {
-        Alert.alert('Check the time', 'Use a 24-hour time — hour 0–23 and minute 0–59.');
-        return;
-      }
     }
 
     const payload = {
       name: name.trim(),
       categoryId,
-      month: m,
-      day: d,
-      year: y && y > 0 ? y : undefined,
-      hour: hh,
-      minute: hh != null ? mm : undefined,
+      month: dateValue.getMonth() + 1,
+      day: dateValue.getDate(),
+      year: includeYear ? dateValue.getFullYear() : undefined,
+      hour: timeEnabled ? timeValue.getHours() : undefined,
+      minute: timeEnabled ? timeValue.getMinutes() : undefined,
       note: note.trim() || undefined,
     };
     if (isEdit) updateDate(existing!.id, payload);
     else addDate(payload);
     router.back();
   }
+
+  const dateLabel = includeYear
+    ? `${FULL_MONTHS[dateValue.getMonth()]} ${dateValue.getDate()}, ${dateValue.getFullYear()}`
+    : `${FULL_MONTHS[dateValue.getMonth()]} ${dateValue.getDate()}`;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + Spacing.sm }]}>
@@ -152,60 +187,63 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
         )}
 
         <Text style={styles.label}>Date</Text>
-        <View style={styles.row}>
-          <TextInput
-            value={month}
-            onChangeText={setMonth}
-            placeholder="MM"
-            placeholderTextColor={Colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={2}
-            style={[styles.input, styles.dateInput]}
-          />
-          <TextInput
-            value={day}
-            onChangeText={setDay}
-            placeholder="DD"
-            placeholderTextColor={Colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={2}
-            style={[styles.input, styles.dateInput]}
-          />
-          <TextInput
-            value={year}
-            onChangeText={setYear}
-            placeholder="YYYY"
-            placeholderTextColor={Colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={4}
-            style={[styles.input, styles.yearInput]}
-          />
-        </View>
-        <Text style={styles.hint}>Year is optional — used to show age / years.</Text>
+        <Pressable onPress={() => setShowDatePicker(true)} style={styles.pickerField}>
+          <Ionicons name="calendar-outline" size={20} color={Colors.accent} />
+          <Text style={styles.pickerValue}>{dateLabel}</Text>
+          <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+        </Pressable>
 
-        <Text style={styles.label}>Time (optional)</Text>
-        <View style={styles.row}>
-          <TextInput
-            value={hour}
-            onChangeText={setHour}
-            placeholder="HH"
-            placeholderTextColor={Colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={2}
-            style={[styles.input, styles.dateInput]}
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleText}>
+            <Text style={styles.toggleTitle}>Include year</Text>
+            <Text style={styles.hint}>Shows age / years (e.g. “turns 30”).</Text>
+          </View>
+          <Switch
+            value={includeYear}
+            onValueChange={setIncludeYear}
+            trackColor={{ true: Colors.accent, false: Colors.border }}
+            thumbColor="#fff"
           />
-          <TextInput
-            value={minute}
-            onChangeText={setMinute}
-            placeholder="MM"
-            placeholderTextColor={Colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={2}
-            style={[styles.input, styles.dateInput]}
-          />
-          <View style={styles.timeSpacer} />
         </View>
-        <Text style={styles.hint}>24-hour clock — e.g. 18:30. Leave blank for an all-day reminder.</Text>
+
+        {showDatePicker && (
+          <DateTimePicker
+            value={dateValue}
+            mode="date"
+            display="default"
+            onChange={onDateChange}
+          />
+        )}
+
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleText}>
+            <Text style={styles.toggleTitle}>Set a time</Text>
+            <Text style={styles.hint}>Off = all-day reminder.</Text>
+          </View>
+          <Switch
+            value={timeEnabled}
+            onValueChange={setTimeEnabled}
+            trackColor={{ true: Colors.accent, false: Colors.border }}
+            thumbColor="#fff"
+          />
+        </View>
+
+        {timeEnabled && (
+          <Pressable onPress={() => setShowTimePicker(true)} style={styles.pickerField}>
+            <Ionicons name="time-outline" size={20} color={Colors.accent} />
+            <Text style={styles.pickerValue}>{formatTimeOfDay(timeValue)}</Text>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+        )}
+
+        {showTimePicker && (
+          <DateTimePicker
+            value={timeValue}
+            mode="time"
+            display="default"
+            onChange={onTimeChange}
+          />
+        )}
 
         <Text style={styles.label}>Note (optional)</Text>
         <TextInput
@@ -281,10 +319,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  row: { flexDirection: 'row', gap: Spacing.md },
-  dateInput: { flex: 1, textAlign: 'center', letterSpacing: 2 },
-  yearInput: { flex: 1.4, textAlign: 'center', letterSpacing: 2 },
-  timeSpacer: { flex: 1.4 },
+  pickerField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md,
+    height: 52,
+  },
+  pickerValue: { flex: 1, fontSize: 16, color: Colors.text, fontWeight: '600' },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: Spacing.md,
+  },
+  toggleText: { flex: 1, paddingRight: Spacing.md },
+  toggleTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
   hint: { fontSize: 12, color: Colors.textMuted, marginTop: Spacing.xs },
   note: { height: 96, paddingTop: 14, textAlignVertical: 'top' },
 });
