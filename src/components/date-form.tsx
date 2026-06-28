@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/primary-button';
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { ImportantDate, isValidMonthDay } from '@/lib/dates';
+import { ImportantDate, isValidMonthDay, isValidTime } from '@/lib/dates';
 import { useStore } from '@/lib/store';
 
 export function DateForm({ existing }: { existing?: ImportantDate }) {
@@ -27,6 +27,10 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
   const [month, setMonth] = useState(existing ? String(existing.month) : '');
   const [day, setDay] = useState(existing ? String(existing.day) : '');
   const [year, setYear] = useState(existing?.year ? String(existing.year) : '');
+  const [hour, setHour] = useState(existing?.hour != null ? String(existing.hour) : '');
+  const [minute, setMinute] = useState(
+    existing?.hour != null ? String(existing.minute ?? 0).padStart(2, '0') : '',
+  );
   const [note, setNote] = useState(existing?.note ?? '');
 
   // Inline "new tag" state
@@ -54,12 +58,26 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
       Alert.alert('Almost there', 'Add a name and a valid month (1–12) and day (1–31).');
       return;
     }
+
+    let hh: number | undefined;
+    let mm: number | undefined;
+    if (hour.trim()) {
+      hh = parseInt(hour, 10);
+      mm = minute.trim() ? parseInt(minute, 10) : 0;
+      if (!isValidTime(hh, mm)) {
+        Alert.alert('Check the time', 'Use a 24-hour time — hour 0–23 and minute 0–59.');
+        return;
+      }
+    }
+
     const payload = {
       name: name.trim(),
       categoryId,
       month: m,
       day: d,
       year: y && y > 0 ? y : undefined,
+      hour: hh,
+      minute: hh != null ? mm : undefined,
       note: note.trim() || undefined,
     };
     if (isEdit) updateDate(existing!.id, payload);
@@ -165,6 +183,30 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
         </View>
         <Text style={styles.hint}>Year is optional — used to show age / years.</Text>
 
+        <Text style={styles.label}>Time (optional)</Text>
+        <View style={styles.row}>
+          <TextInput
+            value={hour}
+            onChangeText={setHour}
+            placeholder="HH"
+            placeholderTextColor={Colors.textMuted}
+            keyboardType="number-pad"
+            maxLength={2}
+            style={[styles.input, styles.dateInput]}
+          />
+          <TextInput
+            value={minute}
+            onChangeText={setMinute}
+            placeholder="MM"
+            placeholderTextColor={Colors.textMuted}
+            keyboardType="number-pad"
+            maxLength={2}
+            style={[styles.input, styles.dateInput]}
+          />
+          <View style={styles.timeSpacer} />
+        </View>
+        <Text style={styles.hint}>24-hour clock — e.g. 18:30. Leave blank for an all-day reminder.</Text>
+
         <Text style={styles.label}>Note (optional)</Text>
         <TextInput
           value={note}
@@ -242,6 +284,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: Spacing.md },
   dateInput: { flex: 1, textAlign: 'center', letterSpacing: 2 },
   yearInput: { flex: 1.4, textAlign: 'center', letterSpacing: 2 },
+  timeSpacer: { flex: 1.4 },
   hint: { fontSize: 12, color: Colors.textMuted, marginTop: Spacing.xs },
   note: { height: 96, paddingTop: 14, textAlignVertical: 'top' },
 });

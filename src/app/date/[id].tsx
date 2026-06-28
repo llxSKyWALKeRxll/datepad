@@ -8,6 +8,7 @@ import {
   countdownLabel,
   daysUntilNext,
   formatDate,
+  formatTime,
   urgencyColor,
   yearsPhrase,
 } from '@/lib/dates';
@@ -76,6 +77,9 @@ export default function DateDetailScreen() {
 
       <View style={styles.infoCard}>
         <InfoRow icon="calendar-outline" label="Date" value={formatDate(date)} />
+        {formatTime(date) ? (
+          <InfoRow icon="alarm-outline" label="Time" value={formatTime(date)!} />
+        ) : null}
         {date.year ? (
           <InfoRow icon="time-outline" label="Since" value={String(date.year)} />
         ) : null}

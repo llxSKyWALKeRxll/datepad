@@ -1,23 +1,54 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DateCard } from '@/components/date-card';
 import { PrimaryButton } from '@/components/primary-button';
-import { Colors, Spacing } from '@/constants/theme';
-import { daysUntilNext } from '@/lib/dates';
+import { Colors, Radius, Spacing } from '@/constants/theme';
+import {
+  daysUntilNext,
+  Horizon,
+  horizonOf,
+  HORIZON_LABELS,
+  ImportantDate,
+} from '@/lib/dates';
 import { useStore } from '@/lib/store';
+
+const ALL = 'all';
+const ORDER: Horizon[] = ['today', 'week', 'later'];
 
 export default function UpcomingScreen() {
   const insets = useSafeAreaInsets();
-  const { dates, loaded } = useStore();
+  const { dates, categories, loaded } = useStore();
+  const [filter, setFilter] = useState<string>(ALL);
 
   const sorted = useMemo(
     () => [...dates].sort((a, b) => daysUntilNext(a) - daysUntilNext(b)),
     [dates],
   );
+
+  // Only offer filter chips for tags that are actually in use.
+  const usedCategories = useMemo(() => {
+    const ids = new Set(dates.map((d) => d.categoryId));
+    return categories.filter((c) => ids.has(c.id));
+  }, [dates, categories]);
+
+  const visible = filter === ALL ? sorted : sorted.filter((d) => d.categoryId === filter);
+
+  const groups = useMemo(() => {
+    const map = new Map<Horizon, ImportantDate[]>();
+    for (const d of visible) {
+      const h = horizonOf(daysUntilNext(d));
+      const arr = map.get(h);
+      if (arr) arr.push(d);
+      else map.set(h, [d]);
+    }
+    return ORDER.map((h) => ({ horizon: h, items: map.get(h) ?? [] })).filter(
+      (g) => g.items.length > 0,
+    );
+  }, [visible]);
 
   const isEmpty = loaded && sorted.length === 0;
 
@@ -53,20 +84,71 @@ export default function UpcomingScreen() {
           />
         </View>
       ) : (
-        <ScrollView
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}>
-          <Text style={styles.sectionLabel}>UPCOMING</Text>
-          {sorted.map((d) => (
-            <DateCard
-              key={d.id}
-              date={d}
-              onPress={() => router.push({ pathname: '/date/[id]', params: { id: d.id } })}
-            />
-          ))}
-        </ScrollView>
+        <>
+          {usedCategories.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filters}>
+              <FilterChip
+                label="All"
+                active={filter === ALL}
+                onPress={() => setFilter(ALL)}
+              />
+              {usedCategories.map((c) => (
+                <FilterChip
+                  key={c.id}
+                  label={`${c.emoji} ${c.label}`}
+                  active={filter === c.id}
+                  onPress={() => setFilter(c.id)}
+                />
+              ))}
+            </ScrollView>
+          )}
+
+          <ScrollView
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}>
+            {groups.length === 0 ? (
+              <Text style={styles.noneInFilter}>Nothing tagged here yet.</Text>
+            ) : (
+              groups.map((g) => (
+                <View key={g.horizon} style={styles.section}>
+                  <Text style={styles.sectionLabel}>{HORIZON_LABELS[g.horizon]}</Text>
+                  {g.items.map((d) => (
+                    <DateCard
+                      key={d.id}
+                      date={d}
+                      onPress={() =>
+                        router.push({ pathname: '/date/[id]', params: { id: d.id } })
+                      }
+                    />
+                  ))}
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </>
       )}
     </View>
+  );
+}
+
+function FilterChip({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.filterChip, active && styles.filterChipActive]}>
+      <Text style={[styles.filterText, active && styles.filterTextActive]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -89,13 +171,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  list: { padding: Spacing.lg, gap: Spacing.md },
+  filters: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    justifyContent: 'center',
+  },
+  filterChipActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
+  filterText: { fontSize: 14, fontWeight: '600', color: Colors.text },
+  filterTextActive: { color: '#fff' },
+  list: { padding: Spacing.lg, paddingTop: Spacing.sm, gap: Spacing.lg },
+  section: { gap: Spacing.md },
   sectionLabel: {
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1,
     color: Colors.textMuted,
-    marginBottom: 2,
+  },
+  noneInFilter: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: Spacing.xl,
   },
   empty: {
     flex: 1,

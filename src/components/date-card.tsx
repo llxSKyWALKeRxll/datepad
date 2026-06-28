@@ -6,6 +6,7 @@ import {
   countdownLabel,
   daysUntilNext,
   formatDate,
+  formatTime,
   ImportantDate,
   urgencyColor,
   yearsPhrase,
@@ -20,7 +21,7 @@ export function DateCard({ date, onPress }: { date: ImportantDate; onPress?: () 
   const color = urgencyColor(days);
   const years = yearsPhrase(date, category);
 
-  const subtitle = [category?.label ?? 'Date', years, formatDate(date)]
+  const subtitle = [category?.label ?? 'Date', years, formatDate(date), formatTime(date)]
     .filter(Boolean)
     .join(' · ');
 

@@ -22,6 +22,8 @@ export interface ImportantDate {
   month: number; // 1-12
   day: number; // 1-31
   year?: number; // optional reference year (birth year, wedding year, ...)
+  hour?: number; // optional time-of-day, 0-23
+  minute?: number; // 0-59
   note?: string;
   createdAt: number;
 }
@@ -95,3 +97,32 @@ export function yearsPhrase(date: ImportantDate, category?: Category): string | 
 export function isValidMonthDay(month: number, day: number): boolean {
   return month >= 1 && month <= 12 && day >= 1 && day <= 31;
 }
+
+export function isValidTime(hour: number, minute: number): boolean {
+  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+}
+
+/** "6:30 PM" if a time is set, else undefined. */
+export function formatTime(date: ImportantDate): string | undefined {
+  if (date.hour == null) return undefined;
+  const h = date.hour;
+  const m = date.minute ?? 0;
+  const ampm = h < 12 ? 'AM' : 'PM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+/** Horizon bucket for grouping the upcoming list. */
+export type Horizon = 'today' | 'week' | 'later';
+
+export function horizonOf(daysLeft: number): Horizon {
+  if (daysLeft <= 0) return 'today';
+  if (daysLeft <= 7) return 'week';
+  return 'later';
+}
+
+export const HORIZON_LABELS: Record<Horizon, string> = {
+  today: 'TODAY',
+  week: 'THIS WEEK',
+  later: 'LATER',
+};
