@@ -3,12 +3,14 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/theme';
+import { AuthProvider } from '@/lib/auth';
 import { DatesProvider } from '@/lib/store';
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <DatesProvider>
+      <AuthProvider>
+        <DatesProvider>
         <Stack
           screenOptions={{
             headerShown: false,
@@ -19,8 +21,9 @@ export default function RootLayout() {
           <Stack.Screen name="add" options={{ presentation: 'modal' }} />
           <Stack.Screen name="edit/[id]" options={{ presentation: 'modal' }} />
         </Stack>
-        <StatusBar style="dark" />
-      </DatesProvider>
+          <StatusBar style="dark" />
+        </DatesProvider>
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }

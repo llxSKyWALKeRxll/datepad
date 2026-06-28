@@ -110,6 +110,32 @@ On Windows, build through a short path (e.g. a `C:\dp` junction to this repo) to
 avoid MAX_PATH issues during the Gradle build. The generated `android/` folder is
 gitignored — it's regenerated from `app.json` via Expo prebuild.
 
+### Backend (Supabase)
+
+The app reads/writes through a single `useStore()` seam with two backends:
+**AsyncStorage** when signed out (local-only, offline) and **Supabase** when
+signed in (synced, RLS-scoped per user). Sign-in is optional, via an emailed
+6-digit code; on a user's first sign-in their local data migrates up to the
+cloud.
+
+Run the local stack (Docker required) and point the app at it:
+
+```bash
+npx supabase start          # boots Postgres/Auth/etc. on the 544xx ports
+```
+
+Create a `.env` (gitignored) with the values `supabase start` prints:
+
+```bash
+EXPO_PUBLIC_SUPABASE_URL=http://10.0.2.2:54421   # 10.0.2.2 = host, from the Android emulator
+EXPO_PUBLIC_SUPABASE_ANON_KEY=<ANON_KEY from `supabase start`>
+```
+
+Migrations live in `supabase/migrations/`; the OTP email template is
+`supabase/templates/magic_link.html`. Restart Metro after editing `.env`
+(`EXPO_PUBLIC_*` vars are inlined at bundle time). Locally, emails land in
+Mailpit at <http://127.0.0.1:54424>.
+
 ## Roadmap
 
 - [x] Scaffold base app (Expo Router, Coral theme)
@@ -117,8 +143,8 @@ gitignored — it's regenerated from `app.json` via Expo prebuild.
 - [x] Custom tags/categories with inline "create on the spot"
 - [x] Local persistence (AsyncStorage) — the seam we'll swap for Supabase
 - [x] Native Android dev build
-- [ ] Real date picker (currently MM/DD/YYYY inputs)
-- [ ] Supabase persistence + auth
+- [x] Real date picker (native calendar + time picker)
+- [x] Supabase persistence + auth (email OTP, optional, local fallback + migrate-on-sign-in)
 - [ ] Advance-notice notification engine (pg_cron → Edge Function → Expo Push)
 - [ ] Premium tier (unlimited + gift ideas + message drafts)
 - [ ] iOS build
@@ -131,9 +157,10 @@ MVP shell working on-device. Name, tagline, stack, and architecture locked:
 - **Tagline:** *Never forget a date that matters.*
 - **Repo:** https://github.com/llxSKyWALKeRxll/datepad
 
-Local data model (current): `dates` (name, categoryId, month/day, optional year,
-note) + `categories` (built-in + user-created tags). The Supabase schema above is
-the next step; screens already read/write through a single `useStore()` seam.
+Data model: `dates` (name, categoryId, month/day, optional year, optional
+time-of-day, note) + `categories` (built-in client constants + user-created
+tags). Both persist locally or to Supabase behind one `useStore()` seam. Next
+up: the server-driven advance-notice notification engine.
 
 ---
 

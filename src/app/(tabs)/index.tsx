@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DateCard } from '@/components/date-card';
@@ -69,7 +69,11 @@ export default function UpcomingScreen() {
         </Pressable>
       </View>
 
-      {isEmpty ? (
+      {!loaded ? (
+        <View style={styles.empty}>
+          <ActivityIndicator color={Colors.accent} />
+        </View>
+      ) : isEmpty ? (
         <View style={styles.empty}>
           <Text style={styles.emptyEmoji}>🎂</Text>
           <Text style={styles.emptyTitle}>No dates yet</Text>

@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AccountCard } from '@/components/account-card';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 
 const ROWS: { icon: keyof typeof Ionicons.glyphMap; label: string; hint: string }[] = [
   { icon: 'notifications-outline', label: 'Reminder timing', hint: 'Soon' },
-  { icon: 'cloud-upload-outline', label: 'Account & sync', hint: 'Soon' },
   { icon: 'star-outline', label: 'DatePad Premium', hint: 'Soon' },
   { icon: 'information-circle-outline', label: 'About', hint: 'v0.1' },
 ];
@@ -14,31 +14,44 @@ const ROWS: { icon: keyof typeof Ionicons.glyphMap; label: string; hint: string 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + Spacing.md }]}>
       <Text style={styles.title}>Settings</Text>
+
+      <Text style={styles.sectionLabel}>ACCOUNT</Text>
+      <AccountCard />
+
+      <Text style={styles.sectionLabel}>MORE</Text>
       <View style={styles.group}>
         {ROWS.map((r, i) => (
-          <View
-            key={r.label}
-            style={[styles.row, i < ROWS.length - 1 && styles.rowDivider]}>
+          <View key={r.label} style={[styles.row, i < ROWS.length - 1 && styles.rowDivider]}>
             <Ionicons name={r.icon} size={20} color={Colors.accent} />
             <Text style={styles.rowLabel}>{r.label}</Text>
             <Text style={styles.rowHint}>{r.hint}</Text>
           </View>
         ))}
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: Colors.background, padding: Spacing.lg },
+  screen: { flex: 1, backgroundColor: Colors.background },
+  content: { padding: Spacing.lg, gap: Spacing.sm },
   title: {
     fontSize: 30,
     fontWeight: '800',
     color: Colors.text,
+    marginBottom: Spacing.md,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: Colors.textMuted,
     marginTop: Spacing.md,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.xs,
   },
   group: {
     backgroundColor: Colors.surface,
