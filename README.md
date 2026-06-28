@@ -53,6 +53,27 @@ A daily scheduled job queries "whose reminders fire today?" (a relational range 
 
 Chosen on merits: the reminder engine is a SQL scheduling problem (Postgres + pg_cron), and cross-platform-from-one-codebase fits an Android-first / iOS-later plan.
 
+## Design / Theme
+
+**Coral / Warm** — friendly and celebratory (it's an app about loved ones) while staying a clean, legible utility. Light mode first; dark mode later.
+
+| Token | Hex | Use |
+|---|---|---|
+| `accent` | `#FF6B5E` | primary buttons, highlights, active state |
+| `accent-pressed` | `#E8503F` | pressed/active accent |
+| `background` | `#FFF7F2` | app background (warm cream) |
+| `surface` | `#FFFFFF` | cards, sheets |
+| `text` | `#22201E` | primary text (warm ink) |
+| `text-muted` | `#8A817C` | secondary text, captions |
+
+**Countdown / urgency scale** (functional, used on date badges regardless of theme):
+
+| State | Hex | Meaning |
+|---|---|---|
+| `far` | `#3FB27F` | plenty of time |
+| `soon` | `#F2A53C` | coming up |
+| `today` | `#FF6B5E` | today / overdue |
+
 ## Data Model (draft)
 
 - **people** — name, relationship, notes, optional photo.
