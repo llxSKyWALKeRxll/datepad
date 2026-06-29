@@ -10,15 +10,16 @@ A birthday & important-date tracker that reminds you *well in advance* — a wee
 
 Calendar apps remind you the day of — too late to buy a gift, book a table, or write something thoughtful. DatePad is built around **advance, escalating notice** plus a little help with the follow-through (gift ideas, message drafts), so the reminder turns into action instead of guilt.
 
-**Differentiator vs. a plain calendar:** advance + escalating reminders, recurring annual events handled automatically, and optional gifting/message help.
+**Differentiator vs. a plain calendar:** advance + escalating reminders, flexible recurrence handled automatically, and optional gifting/message help.
 
 ## Core Features (MVP)
 
 - **Add people & dates once** — birthdays, anniversaries, and custom important dates.
-- **Recurring annual events** — yearly dates repeat automatically; no re-entry.
-- **Advance, escalating reminders** — configurable lead times (e.g. 1 week / 1 day / day-of).
+- **Flexible recurrence** — yearly, monthly, one-off, or every-N-years; repeating dates roll over automatically with no re-entry.
+- **Advance, escalating reminders** — per-date, customizable lead times (on the day / 1 day / 3 days / 1 week / 2 weeks / 1 month before), with a master on/off per date.
 - **Push notifications** — reminders arrive even when the app is closed.
-- **Upcoming view** — see what's coming and how many days are left at a glance.
+- **Upcoming view** — see what's coming and how many days are left at a glance, with search and sort (soonest / A–Z / newest).
+- **Share a date** — send a one-line "X is in N days" via the native share sheet.
 
 ## Planned / Premium (later)
 
@@ -44,7 +45,7 @@ pg_cron (daily)  →  Edge Function "send-reminders"  →  Expo Push (FCM + APNs
 
 A daily scheduled job queries "whose reminders fire today?" and sends the pushes. Optionally, near-term reminders are *also* scheduled as local notifications for redundancy, with the server push as source of truth.
 
-**Implemented (server side):** each date carries `lead_days` (default `{7,1,0}`) and a `reminders_enabled` flag. The SQL function `reminders_due(p_today)` returns every date whose next annual occurrence minus today lands on one of its lead days. The `send-reminders` edge function calls it, joins each owner's `push_tokens`, builds the message copy, and posts to the Expo Push API (accepts `{ "today", "dryRun" }` overrides for testing). `pg_cron` invokes it daily at 09:00 UTC, reading the function URL + service key from Vault. Still TODO: the client registering its Expo push token and a per-date lead-time editor.
+**Implemented (server side):** each date carries `lead_days` (default `{7,1,0}`), a `reminders_enabled` flag, and a `recurrence` (`annual` / `monthly` / `once` / `everyNYears`, with `recurrence_years`). The SQL helper `next_occurrence(...)` computes the next occurrence per recurrence type (clamping the day to the month length, e.g. Feb 29 → Feb 28 off-leap), and `reminders_due(p_today)` returns every enabled date whose next occurrence minus today lands on one of its lead days. The `send-reminders` edge function calls it, joins each owner's `push_tokens`, builds the message copy, and posts to the Expo Push API (accepts `{ "today", "dryRun" }` overrides for testing). `pg_cron` invokes it daily at 09:00 UTC, reading the function URL + service key from Vault. The client lead-time editor is built; still TODO: the client registering its Expo push token (needs a real device).
 
 ## Tech Stack
 
@@ -76,11 +77,11 @@ Chosen on merits: the reminder engine is a SQL scheduling problem (Postgres + pg
 | `soon` | `#F2A53C` | coming up |
 | `today` | `#FF6B5E` | today / overdue |
 
-## Data Model (draft)
+## Data Model
 
-- **people** — name, relationship, notes, optional photo.
-- **dates** — owner, label, type (birthday / anniversary / custom), month/day (+ optional year), `recurring` flag, linked person.
-- **reminder_rules** — per-date lead times (e.g. `[7d, 1d, 0d]`), notification channel.
+- **important_dates** — owner, name, `category_id`, month/day (+ optional year), optional time-of-day, note, `recurrence` (+ `recurrence_years`), `lead_days` (e.g. `{7,1,0}`), `reminders_enabled`.
+- **categories** — built-in client constants (birthday / anniversary / holiday / reminder) plus user-created tags persisted per user.
+- **push_tokens** — one row per device, for server-driven Expo Push.
 
 ## Repo Structure
 
@@ -147,7 +148,10 @@ Mailpit at <http://127.0.0.1:54424>.
 - [x] Native Android dev build
 - [x] Real date picker (native calendar + time picker)
 - [x] Supabase persistence + auth (email OTP, optional, local fallback + migrate-on-sign-in)
-- [~] Advance-notice notification engine — server side done (pg_cron → `send-reminders` → Expo Push); client push-token registration + per-date lead-time UI still TODO
+- [x] Per-date customizable reminders (lead-time editor + master toggle)
+- [x] Flexible recurrence (annual / monthly / one-off / every-N-years), server `reminders_due` aware
+- [x] Upcoming search + sort; share a date
+- [~] Advance-notice notification engine — server side + client lead-time UI done; client push-token registration still TODO (needs a real device)
 - [ ] Premium tier (unlimited + gift ideas + message drafts)
 - [ ] iOS build
 
@@ -159,10 +163,11 @@ MVP shell working on-device. Name, tagline, stack, and architecture locked:
 - **Tagline:** *Never forget a date that matters.*
 - **Repo:** https://github.com/llxSKyWALKeRxll/datepad
 
-Data model: `dates` (name, categoryId, month/day, optional year, optional
-time-of-day, note) + `categories` (built-in client constants + user-created
-tags). Both persist locally or to Supabase behind one `useStore()` seam. Next
-up: the server-driven advance-notice notification engine.
+Data model: `important_dates` (name, categoryId, month/day, optional year,
+optional time-of-day, note, recurrence, lead_days, reminders_enabled) +
+`categories` (built-in client constants + user-created tags). Both persist
+locally or to Supabase behind one `useStore()` seam. Next up: client Expo
+push-token registration (needs a real device), then the premium tier.
 
 ---
 

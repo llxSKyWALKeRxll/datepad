@@ -15,16 +15,30 @@ export interface Category {
   yearMode: YearMode;
 }
 
+/**
+ * How a date repeats. `annual` (default) and `monthly` ignore the year; `once`
+ * and `everyNYears` use `year` as the anchor (so they need a year set).
+ */
+export type RecurrenceType = 'annual' | 'monthly' | 'once' | 'everyNYears';
+
 export interface ImportantDate {
   id: string;
   name: string;
   categoryId: string;
   month: number; // 1-12
   day: number; // 1-31
-  year?: number; // optional reference year (birth year, wedding year, ...)
+  year?: number; // reference year (birthday) OR anchor year (once / everyNYears)
   hour?: number; // optional time-of-day, 0-23
   minute?: number; // 0-59
   note?: string;
+  /** Defaults to 'annual' when absent (back-compat with pre-recurrence rows). */
+  recurrence?: RecurrenceType;
+  /** Interval in years for `everyNYears` (>= 2). */
+  recurrenceYears?: number;
+  /** Days-before the date that a reminder fires. Absent ⇒ DEFAULT_LEAD_DAYS. */
+  leadDays?: number[];
+  /** Master on/off for this date's reminders. Absent ⇒ true. */
+  remindersEnabled?: boolean;
   createdAt: number;
 }
 
@@ -33,6 +47,17 @@ export const DEFAULT_CATEGORIES: Category[] = [
   { id: 'anniversary', label: 'Anniversary', emoji: '💞', builtIn: true, yearMode: 'years' },
   { id: 'holiday', label: 'Holiday', emoji: '🎉', builtIn: true, yearMode: 'none' },
   { id: 'reminder', label: 'Reminder', emoji: '📌', builtIn: true, yearMode: 'none' },
+];
+
+/** Lead times offered in the reminder editor, and the app-wide default. */
+export const LEAD_PRESETS: number[] = [0, 1, 3, 7, 14, 30];
+export const DEFAULT_LEAD_DAYS: number[] = [7, 1, 0];
+
+export const RECURRENCE_OPTIONS: { type: RecurrenceType; label: string }[] = [
+  { type: 'annual', label: 'Every year' },
+  { type: 'monthly', label: 'Every month' },
+  { type: 'everyNYears', label: 'Every N years' },
+  { type: 'once', label: 'One-off' },
 ];
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -45,17 +70,64 @@ function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-/** The next calendar occurrence of this annual date (today counts as the occurrence). */
+function daysInMonth(year: number, month1: number): number {
+  // Day 0 of the next month is the last day of `month1` (1-based).
+  return new Date(year, month1, 0).getDate();
+}
+
+/** A date that clamps the day to the month length and normalizes month overflow. */
+function occOf(year: number, month0: number, day: number): Date {
+  const y = year + Math.floor(month0 / 12);
+  const m0 = ((month0 % 12) + 12) % 12;
+  return new Date(y, m0, Math.min(day, daysInMonth(y, m0 + 1)));
+}
+
+export function recurrenceOf(date: ImportantDate): RecurrenceType {
+  return date.recurrence ?? 'annual';
+}
+
+export function leadDaysOf(date: ImportantDate): number[] {
+  return date.leadDays && date.leadDays.length ? date.leadDays : DEFAULT_LEAD_DAYS;
+}
+
+/** The next occurrence of this date (today counts). Past one-offs return their own past date. */
 export function nextOccurrence(date: ImportantDate, from: Date = new Date()): Date {
   const today = startOfDay(from);
-  let next = new Date(today.getFullYear(), date.month - 1, date.day);
+  const rec = recurrenceOf(date);
+
+  if (rec === 'once') {
+    const y = date.year ?? today.getFullYear();
+    return occOf(y, date.month - 1, date.day);
+  }
+
+  if (rec === 'monthly') {
+    let cand = occOf(today.getFullYear(), today.getMonth(), date.day);
+    if (cand.getTime() < today.getTime()) {
+      cand = occOf(today.getFullYear(), today.getMonth() + 1, date.day);
+    }
+    return cand;
+  }
+
+  if (rec === 'everyNYears') {
+    const n = Math.max(date.recurrenceYears ?? 1, 1);
+    let y = date.year ?? today.getFullYear();
+    let cand = occOf(y, date.month - 1, date.day);
+    while (cand.getTime() < today.getTime()) {
+      y += n;
+      cand = occOf(y, date.month - 1, date.day);
+    }
+    return cand;
+  }
+
+  // annual
+  let next = occOf(today.getFullYear(), date.month - 1, date.day);
   if (next.getTime() < today.getTime()) {
-    next = new Date(today.getFullYear() + 1, date.month - 1, date.day);
+    next = occOf(today.getFullYear() + 1, date.month - 1, date.day);
   }
   return next;
 }
 
-/** Days until the next occurrence (0 = today). */
+/** Days until the next occurrence (0 = today; negative = a past one-off). */
 export function daysUntilNext(date: ImportantDate, from: Date = new Date()): number {
   const today = startOfDay(from);
   const next = nextOccurrence(date, from);
@@ -69,12 +141,14 @@ export function upcomingYears(date: ImportantDate, from: Date = new Date()): num
 }
 
 export function urgencyColor(daysLeft: number): string {
-  if (daysLeft <= 0) return Colors.today;
+  if (daysLeft < 0) return Colors.textMuted;
+  if (daysLeft === 0) return Colors.today;
   if (daysLeft <= 7) return Colors.soon;
   return Colors.far;
 }
 
 export function countdownLabel(daysLeft: number): string {
+  if (daysLeft < 0) return daysLeft === -1 ? 'Yesterday' : `${-daysLeft} days ago`;
   if (daysLeft === 0) return 'Today';
   if (daysLeft === 1) return 'Tomorrow';
   return `${daysLeft} days`;
@@ -83,15 +157,59 @@ export function countdownLabel(daysLeft: number): string {
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export function formatDate(date: ImportantDate): string {
-  return `${MONTHS[date.month - 1]} ${date.day}`;
+  // One-offs are a specific calendar day, so include the year.
+  const base = `${MONTHS[date.month - 1]} ${date.day}`;
+  return recurrenceOf(date) === 'once' && date.year ? `${base}, ${date.year}` : base;
 }
 
 /** Builds the "turns 30" / "8 years" phrase for a date under a category, if applicable. */
 export function yearsPhrase(date: ImportantDate, category?: Category): string | undefined {
+  // For one-offs the year is the event's own year, not a reference to count from.
+  if (recurrenceOf(date) === 'once') return undefined;
   const years = upcomingYears(date);
   if (years === undefined || !category || category.yearMode === 'none') return undefined;
   if (category.yearMode === 'age') return `turns ${years}`;
   return `${years} ${years === 1 ? 'year' : 'years'}`;
+}
+
+export function recurrenceLabel(date: ImportantDate): string {
+  switch (recurrenceOf(date)) {
+    case 'monthly':
+      return 'Every month';
+    case 'once':
+      return 'One-off';
+    case 'everyNYears':
+      return `Every ${date.recurrenceYears ?? 2} years`;
+    default:
+      return 'Every year';
+  }
+}
+
+/** Human label for a single lead time, e.g. 7 ⇒ "1 week before". */
+export function leadLabel(days: number): string {
+  if (days <= 0) return 'On the day';
+  if (days === 1) return '1 day before';
+  if (days === 7) return '1 week before';
+  if (days === 14) return '2 weeks before';
+  if (days === 30) return '1 month before';
+  return `${days} days before`;
+}
+
+/** "1 week, 1 day, on the day" — or "Off" when reminders are disabled. */
+export function leadSummary(date: ImportantDate): string {
+  if (date.remindersEnabled === false) return 'Off';
+  const leads = [...leadDaysOf(date)].sort((a, b) => b - a);
+  if (leads.length === 0) return 'Off';
+  return leads.map((d) => leadLabel(d).replace(/ before$/, '')).join(', ');
+}
+
+/** Shareable one-liner for a date. */
+export function shareText(date: ImportantDate, category?: Category): string {
+  const days = daysUntilNext(date);
+  const when = countdownLabel(days).toLowerCase();
+  const years = yearsPhrase(date, category);
+  const subject = years ? `${date.name} (${years})` : date.name;
+  return `📅 ${subject} — ${formatDate(date)} (${when}). Tracked with DatePad.`;
 }
 
 export function isValidMonthDay(month: number, day: number): boolean {
@@ -113,10 +231,11 @@ export function formatTime(date: ImportantDate): string | undefined {
 }
 
 /** Horizon bucket for grouping the upcoming list. */
-export type Horizon = 'today' | 'week' | 'later';
+export type Horizon = 'today' | 'week' | 'later' | 'passed';
 
 export function horizonOf(daysLeft: number): Horizon {
-  if (daysLeft <= 0) return 'today';
+  if (daysLeft < 0) return 'passed';
+  if (daysLeft === 0) return 'today';
   if (daysLeft <= 7) return 'week';
   return 'later';
 }
@@ -125,4 +244,5 @@ export const HORIZON_LABELS: Record<Horizon, string> = {
   today: 'TODAY',
   week: 'THIS WEEK',
   later: 'LATER',
+  passed: 'PASSED',
 };

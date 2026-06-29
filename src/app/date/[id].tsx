@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors, Radius, Spacing } from '@/constants/theme';
@@ -9,6 +9,10 @@ import {
   daysUntilNext,
   formatDate,
   formatTime,
+  leadSummary,
+  recurrenceLabel,
+  recurrenceOf,
+  shareText,
   urgencyColor,
   yearsPhrase,
 } from '@/lib/dates';
@@ -37,6 +41,10 @@ export default function DateDetailScreen() {
   const color = urgencyColor(days);
   const years = yearsPhrase(date, category);
 
+  function onShare() {
+    Share.share({ message: shareText(date!, category) }).catch(() => {});
+  }
+
   function onDelete() {
     Alert.alert('Delete date', `Remove “${date!.name}” from DatePad?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -57,9 +65,14 @@ export default function DateDetailScreen() {
         <Pressable onPress={() => router.back()} hitSlop={10} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={26} color={Colors.text} />
         </Pressable>
-        <Pressable onPress={onDelete} hitSlop={10} style={styles.iconBtn}>
-          <Ionicons name="trash-outline" size={22} color={Colors.accent} />
-        </Pressable>
+        <View style={styles.topActions}>
+          <Pressable onPress={onShare} hitSlop={10} style={styles.iconBtn}>
+            <Ionicons name="share-outline" size={22} color={Colors.text} />
+          </Pressable>
+          <Pressable onPress={onDelete} hitSlop={10} style={styles.iconBtn}>
+            <Ionicons name="trash-outline" size={22} color={Colors.accent} />
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.hero}>
@@ -77,12 +90,14 @@ export default function DateDetailScreen() {
 
       <View style={styles.infoCard}>
         <InfoRow icon="calendar-outline" label="Date" value={formatDate(date)} />
+        <InfoRow icon="repeat-outline" label="Repeats" value={recurrenceLabel(date)} />
         {formatTime(date) ? (
           <InfoRow icon="alarm-outline" label="Time" value={formatTime(date)!} />
         ) : null}
-        {date.year ? (
+        {date.year && recurrenceOf(date) !== 'once' ? (
           <InfoRow icon="time-outline" label="Since" value={String(date.year)} />
         ) : null}
+        <InfoRow icon="notifications-outline" label="Remind" value={leadSummary(date)} />
         {date.note ? <InfoRow icon="document-text-outline" label="Note" value={date.note} /> : null}
       </View>
 
@@ -129,6 +144,7 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.sm,
   },
   iconBtn: { padding: 4 },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   hero: { alignItems: 'center', marginTop: Spacing.md, marginBottom: Spacing.lg },
   emojiWrap: {
     width: 88,

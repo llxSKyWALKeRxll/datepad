@@ -21,7 +21,14 @@ import {
 } from 'react';
 
 import { useAuth } from '@/lib/auth';
-import { Category, DEFAULT_CATEGORIES, genId, ImportantDate } from '@/lib/dates';
+import {
+  Category,
+  DEFAULT_CATEGORIES,
+  genId,
+  ImportantDate,
+  leadDaysOf,
+  recurrenceOf,
+} from '@/lib/dates';
 import { supabase } from '@/lib/supabase';
 
 const DATES_KEY = 'datepad.dates.v1';
@@ -108,6 +115,10 @@ function dateToRow(d: ImportantDate, userId: string) {
     hour: d.hour ?? null,
     minute: d.minute ?? null,
     note: d.note ?? null,
+    recurrence: recurrenceOf(d),
+    recurrence_years: d.recurrenceYears ?? null,
+    lead_days: leadDaysOf(d),
+    reminders_enabled: d.remindersEnabled ?? true,
     created_at: new Date(d.createdAt).toISOString(),
   };
 }
@@ -123,6 +134,10 @@ function rowToDate(r: any): ImportantDate {
     hour: r.hour ?? undefined,
     minute: r.minute ?? undefined,
     note: r.note ?? undefined,
+    recurrence: r.recurrence ?? undefined,
+    recurrenceYears: r.recurrence_years ?? undefined,
+    leadDays: r.lead_days ?? undefined,
+    remindersEnabled: r.reminders_enabled ?? undefined,
     createdAt: new Date(r.created_at).getTime(),
   };
 }

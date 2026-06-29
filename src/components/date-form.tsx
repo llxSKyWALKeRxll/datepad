@@ -17,7 +17,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/primary-button';
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { ImportantDate } from '@/lib/dates';
+import {
+  DEFAULT_LEAD_DAYS,
+  ImportantDate,
+  leadLabel,
+  LEAD_PRESETS,
+  RECURRENCE_OPTIONS,
+  RecurrenceType,
+} from '@/lib/dates';
 import { useStore } from '@/lib/store';
 
 const FULL_MONTHS = [
@@ -63,7 +70,23 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
   const [timeValue, setTimeValue] = useState<Date>(() => seedTime(existing));
   const [showTimePicker, setShowTimePicker] = useState(false);
 
+  const [recurrence, setRecurrence] = useState<RecurrenceType>(existing?.recurrence ?? 'annual');
+  const [recurrenceYears, setRecurrenceYears] = useState(String(existing?.recurrenceYears ?? 4));
+
+  const [remindersEnabled, setRemindersEnabled] = useState(existing?.remindersEnabled !== false);
+  const [leadDays, setLeadDays] = useState<number[]>(existing?.leadDays ?? DEFAULT_LEAD_DAYS);
+
   const [note, setNote] = useState(existing?.note ?? '');
+
+  // `once` / `everyNYears` anchor on a real year, so the year is mandatory there.
+  const yearRequired = recurrence === 'once' || recurrence === 'everyNYears';
+  const showYear = yearRequired || includeYear;
+
+  function toggleLead(d: number) {
+    setLeadDays((prev) =>
+      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((a, b) => a - b),
+    );
+  }
 
   // Inline "new tag" state
   const [creatingTag, setCreatingTag] = useState(false);
@@ -101,22 +124,27 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
       return;
     }
 
+    const years = Math.max(parseInt(recurrenceYears, 10) || 2, 2);
     const payload = {
       name: name.trim(),
       categoryId,
       month: dateValue.getMonth() + 1,
       day: dateValue.getDate(),
-      year: includeYear ? dateValue.getFullYear() : undefined,
+      year: showYear ? dateValue.getFullYear() : undefined,
       hour: timeEnabled ? timeValue.getHours() : undefined,
       minute: timeEnabled ? timeValue.getMinutes() : undefined,
       note: note.trim() || undefined,
+      recurrence,
+      recurrenceYears: recurrence === 'everyNYears' ? years : undefined,
+      leadDays: remindersEnabled ? [...leadDays].sort((a, b) => a - b) : [],
+      remindersEnabled,
     };
     if (isEdit) updateDate(existing!.id, payload);
     else addDate(payload);
     router.back();
   }
 
-  const dateLabel = includeYear
+  const dateLabel = showYear
     ? `${FULL_MONTHS[dateValue.getMonth()]} ${dateValue.getDate()}, ${dateValue.getFullYear()}`
     : `${FULL_MONTHS[dateValue.getMonth()]} ${dateValue.getDate()}`;
 
@@ -186,25 +214,59 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
           </View>
         )}
 
-        <Text style={styles.label}>Date</Text>
+        <Text style={styles.label}>Repeats</Text>
+        <View style={styles.chips}>
+          {RECURRENCE_OPTIONS.map((opt) => {
+            const active = opt.type === recurrence;
+            return (
+              <Pressable
+                key={opt.type}
+                onPress={() => setRecurrence(opt.type)}
+                style={[styles.chip, active && styles.chipActive]}>
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {recurrence === 'everyNYears' && (
+          <View style={styles.everyRow}>
+            <Text style={styles.everyText}>Every</Text>
+            <TextInput
+              value={recurrenceYears}
+              onChangeText={(t) => setRecurrenceYears(t.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              maxLength={2}
+              style={[styles.input, styles.everyInput]}
+            />
+            <Text style={styles.everyText}>years</Text>
+          </View>
+        )}
+
+        <Text style={styles.label}>{recurrence === 'once' ? 'Date' : 'Next date'}</Text>
         <Pressable onPress={() => setShowDatePicker(true)} style={styles.pickerField}>
           <Ionicons name="calendar-outline" size={20} color={Colors.accent} />
           <Text style={styles.pickerValue}>{dateLabel}</Text>
           <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
         </Pressable>
+        {recurrence === 'monthly' && (
+          <Text style={styles.hint}>Repeats on day {dateValue.getDate()} of every month.</Text>
+        )}
 
-        <View style={styles.toggleRow}>
-          <View style={styles.toggleText}>
-            <Text style={styles.toggleTitle}>Include year</Text>
-            <Text style={styles.hint}>Shows age / years (e.g. “turns 30”).</Text>
+        {!yearRequired && (
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleText}>
+              <Text style={styles.toggleTitle}>Include year</Text>
+              <Text style={styles.hint}>Shows age / years (e.g. “turns 30”).</Text>
+            </View>
+            <Switch
+              value={includeYear}
+              onValueChange={setIncludeYear}
+              trackColor={{ true: Colors.accent, false: Colors.border }}
+              thumbColor="#fff"
+            />
           </View>
-          <Switch
-            value={includeYear}
-            onValueChange={setIncludeYear}
-            trackColor={{ true: Colors.accent, false: Colors.border }}
-            thumbColor="#fff"
-          />
-        </View>
+        )}
 
         {showDatePicker && (
           <DateTimePicker
@@ -243,6 +305,37 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
             display="default"
             onChange={onTimeChange}
           />
+        )}
+
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleText}>
+            <Text style={styles.toggleTitle}>Reminders</Text>
+            <Text style={styles.hint}>Get a heads-up before the day.</Text>
+          </View>
+          <Switch
+            value={remindersEnabled}
+            onValueChange={setRemindersEnabled}
+            trackColor={{ true: Colors.accent, false: Colors.border }}
+            thumbColor="#fff"
+          />
+        </View>
+
+        {remindersEnabled && (
+          <View style={styles.leadChips}>
+            {LEAD_PRESETS.map((d) => {
+              const active = leadDays.includes(d);
+              return (
+                <Pressable
+                  key={d}
+                  onPress={() => toggleLead(d)}
+                  style={[styles.leadChip, active && styles.chipActive]}>
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {leadLabel(d)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         )}
 
         <Text style={styles.label}>Note (optional)</Text>
@@ -306,6 +399,20 @@ const styles = StyleSheet.create({
   },
   chipActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
   chipNew: { borderStyle: 'dashed', borderColor: Colors.accent },
+  everyRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm },
+  everyText: { fontSize: 15, color: Colors.text, fontWeight: '600' },
+  everyInput: { width: 64, textAlign: 'center', height: 48 },
+  leadChips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: Spacing.sm },
+  leadChip: {
+    paddingHorizontal: 14,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   chipEmoji: { fontSize: 15 },
   chipText: { fontSize: 14, fontWeight: '600', color: Colors.text },
   chipTextActive: { color: '#fff' },

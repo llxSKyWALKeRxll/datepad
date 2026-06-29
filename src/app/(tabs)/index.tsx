@@ -1,7 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DateCard } from '@/components/date-card';
@@ -17,17 +25,21 @@ import {
 import { useStore } from '@/lib/store';
 
 const ALL = 'all';
-const ORDER: Horizon[] = ['today', 'week', 'later'];
+const ORDER: Horizon[] = ['today', 'week', 'later', 'passed'];
+
+type SortKey = 'soon' | 'name' | 'added';
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: 'soon', label: 'Soonest' },
+  { key: 'name', label: 'A–Z' },
+  { key: 'added', label: 'Newest' },
+];
 
 export default function UpcomingScreen() {
   const insets = useSafeAreaInsets();
   const { dates, categories, loaded } = useStore();
   const [filter, setFilter] = useState<string>(ALL);
-
-  const sorted = useMemo(
-    () => [...dates].sort((a, b) => daysUntilNext(a) - daysUntilNext(b)),
-    [dates],
-  );
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<SortKey>('soon');
 
   // Only offer filter chips for tags that are actually in use.
   const usedCategories = useMemo(() => {
@@ -35,9 +47,28 @@ export default function UpcomingScreen() {
     return categories.filter((c) => ids.has(c.id));
   }, [dates, categories]);
 
-  const visible = filter === ALL ? sorted : sorted.filter((d) => d.categoryId === filter);
+  const q = query.trim().toLowerCase();
+
+  const visible = useMemo(() => {
+    let arr = dates;
+    if (q) {
+      arr = arr.filter(
+        (d) => d.name.toLowerCase().includes(q) || (d.note?.toLowerCase().includes(q) ?? false),
+      );
+    }
+    if (filter !== ALL) arr = arr.filter((d) => d.categoryId === filter);
+    const out = [...arr];
+    if (sort === 'name') out.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sort === 'added') out.sort((a, b) => b.createdAt - a.createdAt);
+    else out.sort((a, b) => daysUntilNext(a) - daysUntilNext(b));
+    return out;
+  }, [dates, q, filter, sort]);
+
+  // Horizon grouping only makes sense for the default "soonest" view.
+  const grouped = sort === 'soon' && !q;
 
   const groups = useMemo(() => {
+    if (!grouped) return [];
     const map = new Map<Horizon, ImportantDate[]>();
     for (const d of visible) {
       const h = horizonOf(daysUntilNext(d));
@@ -48,9 +79,9 @@ export default function UpcomingScreen() {
     return ORDER.map((h) => ({ horizon: h, items: map.get(h) ?? [] })).filter(
       (g) => g.items.length > 0,
     );
-  }, [visible]);
+  }, [visible, grouped]);
 
-  const isEmpty = loaded && sorted.length === 0;
+  const isEmpty = loaded && dates.length === 0;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -89,33 +120,58 @@ export default function UpcomingScreen() {
         </View>
       ) : (
         <>
-          {usedCategories.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filters}>
+          <View style={styles.searchRow}>
+            <Ionicons name="search" size={18} color={Colors.textMuted} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search names & notes"
+              placeholderTextColor={Colors.textMuted}
+              style={styles.searchInput}
+              returnKeyType="search"
+            />
+            {query.length > 0 && (
+              <Pressable onPress={() => setQuery('')} hitSlop={8}>
+                <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+              </Pressable>
+            )}
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filters}>
+            {SORTS.map((s) => (
               <FilterChip
-                label="All"
-                active={filter === ALL}
-                onPress={() => setFilter(ALL)}
+                key={s.key}
+                label={s.label}
+                active={sort === s.key}
+                onPress={() => setSort(s.key)}
               />
-              {usedCategories.map((c) => (
-                <FilterChip
-                  key={c.id}
-                  label={`${c.emoji} ${c.label}`}
-                  active={filter === c.id}
-                  onPress={() => setFilter(c.id)}
-                />
-              ))}
-            </ScrollView>
-          )}
+            ))}
+            {usedCategories.length > 0 && <View style={styles.divider} />}
+            {usedCategories.length > 0 && (
+              <FilterChip label="All" active={filter === ALL} onPress={() => setFilter(ALL)} />
+            )}
+            {usedCategories.map((c) => (
+              <FilterChip
+                key={c.id}
+                label={`${c.emoji} ${c.label}`}
+                active={filter === c.id}
+                onPress={() => setFilter(c.id)}
+              />
+            ))}
+          </ScrollView>
 
           <ScrollView
             contentContainerStyle={styles.list}
+            keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}>
-            {groups.length === 0 ? (
-              <Text style={styles.noneInFilter}>Nothing tagged here yet.</Text>
-            ) : (
+            {visible.length === 0 ? (
+              <Text style={styles.noneInFilter}>
+                {q ? `No matches for “${query.trim()}”.` : 'Nothing tagged here yet.'}
+              </Text>
+            ) : grouped ? (
               groups.map((g) => (
                 <View key={g.horizon} style={styles.section}>
                   <Text style={styles.sectionLabel}>{HORIZON_LABELS[g.horizon]}</Text>
@@ -130,6 +186,18 @@ export default function UpcomingScreen() {
                   ))}
                 </View>
               ))
+            ) : (
+              <View style={styles.section}>
+                {visible.map((d) => (
+                  <DateCard
+                    key={d.id}
+                    date={d}
+                    onPress={() =>
+                      router.push({ pathname: '/date/[id]', params: { id: d.id } })
+                    }
+                  />
+                ))}
+              </View>
             )}
           </ScrollView>
         </>
@@ -175,10 +243,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    height: 44,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  searchInput: { flex: 1, fontSize: 15, color: Colors.text, padding: 0 },
   filters: {
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
     gap: Spacing.sm,
+    alignItems: 'center',
+  },
+  divider: {
+    width: 1,
+    height: 24,
+    backgroundColor: Colors.border,
+    marginHorizontal: Spacing.xs,
   },
   filterChip: {
     paddingHorizontal: 14,
