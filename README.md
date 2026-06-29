@@ -15,11 +15,12 @@ Calendar apps remind you the day of — too late to buy a gift, book a table, or
 ## Core Features (MVP)
 
 - **Add people & dates once** — birthdays, anniversaries, and custom important dates.
-- **Flexible recurrence** — yearly, monthly, one-off, or every-N-years; repeating dates roll over automatically with no re-entry.
+- **Flexible recurrence** — yearly, monthly, one-off, every-N-years, or **custom dates** (a hand-picked list of specific days for events that move around, e.g. lunar-calendar festivals); repeating dates roll over automatically with no re-entry.
 - **Advance, escalating reminders** — per-date, customizable lead times (on the day / 1 day / 3 days / 1 week / 2 weeks / 1 month before), with a master on/off per date.
-- **Push notifications** — reminders arrive even when the app is closed.
-- **Upcoming view** — see what's coming and how many days are left at a glance, with search and sort (soonest / A–Z / newest).
+- **Push + email reminders** — reminders arrive even when the app is closed; optionally also emailed (to the verified account address).
+- **Upcoming view** — see what's coming and how many days are left at a glance, with a searchable tag filter and sort (soonest / A–Z / newest) in compact dropdowns.
 - **Share a date** — send a one-line "X is in N days" via the native share sheet.
+- **Export your data** — download all dates as a real `.csv` file via the share sheet (save to Files/Drive or attach to mail).
 
 ## Planned / Premium (later)
 
@@ -45,7 +46,7 @@ pg_cron (daily)  →  Edge Function "send-reminders"  →  Expo Push (FCM + APNs
 
 A daily scheduled job queries "whose reminders fire today?" and sends the pushes. Optionally, near-term reminders are *also* scheduled as local notifications for redundancy, with the server push as source of truth.
 
-**Implemented (server side):** each date carries `lead_days` (default `{7,1,0}`), a `reminders_enabled` flag, and a `recurrence` (`annual` / `monthly` / `once` / `everyNYears`, with `recurrence_years`). The SQL helper `next_occurrence(...)` computes the next occurrence per recurrence type (clamping the day to the month length, e.g. Feb 29 → Feb 28 off-leap), and `reminders_due(p_today)` returns every enabled date whose next occurrence minus today lands on one of its lead days. The `send-reminders` edge function calls it, joins each owner's `push_tokens`, builds the message copy, and posts to the Expo Push API (accepts `{ "today", "dryRun" }` overrides for testing). `pg_cron` invokes it daily at 09:00 UTC, reading the function URL + service key from Vault. The client lead-time editor is built; still TODO: the client registering its Expo push token (needs a real device).
+**Implemented (server side):** each date carries `lead_days` (default `{7,1,0}`), a `reminders_enabled` flag, and a `recurrence` (`annual` / `monthly` / `once` / `everyNYears` with `recurrence_years`, or `custom` with a `custom_dates date[]`). The SQL helper `next_occurrence(...)` computes the next occurrence for the rule-based types (clamping the day to the month length, e.g. Feb 29 → Feb 28 off-leap); `custom` simply takes the soonest stored date ≥ today. `reminders_due(p_now)` returns every enabled date whose next occurrence minus today lands on one of its lead days (filtered to the owner's local reminder hour and skipping occurrences marked handled). The `send-reminders` edge function calls it, joins each owner's `push_tokens`, builds the message copy, and posts to the Expo Push API (accepts `{ "today", "dryRun" }` overrides for testing). `pg_cron` invokes it daily at 09:00 UTC, reading the function URL + service key from Vault. The client lead-time editor is built; still TODO: the client registering its Expo push token (needs a real device).
 
 ## Tech Stack
 

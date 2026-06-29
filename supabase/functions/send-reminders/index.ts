@@ -4,8 +4,9 @@
 // the owner's device push tokens and sends an Expo push notification.
 //
 // Request body (all optional, for testing):
-//   { "today": "2026-06-29", "dryRun": true }
-//   - today:  compute reminders as if it were this date (default: server date)
+//   { "now": "2026-06-29T09:00:00Z", "dryRun": true }
+//   - now:    compute reminders as if it were this instant (default: now()).
+//             Each user's local date/hour is derived from their profile timezone.
 //   - dryRun: build the messages but don't actually POST to Expo
 //
 // Auth: invoked with the service-role key, so it reads across all users.
@@ -27,6 +28,8 @@ interface DueRow {
   category_id: string;
   lead: number;
   occurs_on: string;
+  email_reminders: boolean;
+  user_email: string | null;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -60,12 +63,37 @@ function buildMessage(row: DueRow): { title: string; body: string } {
   };
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (ch) =>
+    ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : '&quot;',
+  );
+}
+
+/** Send one reminder email via Resend. Returns whether it was actually sent. */
+async function sendEmail(to: string, title: string, body: string): Promise<boolean> {
+  const apiKey = Deno.env.get('RESEND_API_KEY');
+  const from = Deno.env.get('RESEND_FROM') ?? 'DatePad <reminders@datepad.app>';
+  if (!apiKey) return false; // not configured — caller treats as dry-run
+  const html =
+    `<div style="font-family:system-ui,sans-serif;max-width:480px">` +
+    `<h2 style="color:#FF6B5E;margin:0 0 8px">${escapeHtml(title)}</h2>` +
+    `<p style="font-size:16px;color:#22201E;margin:0">${escapeHtml(body)}</p>` +
+    `<p style="font-size:12px;color:#8A817C;margin-top:24px">Sent by DatePad — never forget a date that matters.</p>` +
+    `</div>`;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ from, to, subject: title, html }),
+  });
+  return res.ok;
+}
+
 Deno.serve(async (req) => {
-  let today: string | undefined;
+  let now: string | undefined;
   let dryRun = false;
   try {
     const body = await req.json();
-    today = body?.today;
+    now = body?.now;
     dryRun = body?.dryRun === true;
   } catch {
     // no body — use defaults
@@ -76,7 +104,7 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
-  const { data: due, error: dueErr } = await supabase.rpc('reminders_due', today ? { p_today: today } : {});
+  const { data: due, error: dueErr } = await supabase.rpc('reminders_due', now ? { p_now: now } : {});
   if (dueErr) {
     return new Response(JSON.stringify({ error: dueErr.message }), {
       status: 500,
@@ -116,15 +144,31 @@ Deno.serve(async (req) => {
       title,
       body,
       sound: 'default',
-      data: { dateId: row.date_id },
+      categoryId: 'reminder', // shows Mark-handled / Snooze action buttons
+      data: { dateId: row.date_id, occursOn: row.occurs_on },
     }));
   });
 
-  if (dryRun || messages.length === 0) {
-    return Response.json({ due: rows.length, sent: 0, dryRun, messages });
+  // Email channel: one email per due date that opted into email reminders.
+  const emailTargets = rows
+    .filter((r) => r.email_reminders && r.user_email)
+    .map((r) => {
+      const { title, body } = buildMessage(r);
+      return { to: r.user_email as string, title, body };
+    });
+
+  if (dryRun) {
+    return Response.json({
+      due: rows.length,
+      sent: 0,
+      emailed: 0,
+      dryRun,
+      messages,
+      emails: emailTargets,
+    });
   }
 
-  // Expo accepts up to 100 messages per request.
+  // Push: Expo accepts up to 100 messages per request.
   let sent = 0;
   const receipts: unknown[] = [];
   for (let i = 0; i < messages.length; i += 100) {
@@ -138,5 +182,11 @@ Deno.serve(async (req) => {
     if (res.ok) sent += batch.length;
   }
 
-  return Response.json({ due: rows.length, sent, receipts });
+  // Email.
+  let emailed = 0;
+  for (const e of emailTargets) {
+    if (await sendEmail(e.to, e.title, e.body)) emailed += 1;
+  }
+
+  return Response.json({ due: rows.length, sent, emailed, receipts });
 });

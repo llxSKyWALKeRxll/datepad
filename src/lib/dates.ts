@@ -2,7 +2,7 @@
  * Date + category model and pure helpers for DatePad.
  * State/persistence lives in store.tsx; this file is logic only.
  */
-import { Colors } from '@/constants/theme';
+import { Urgency } from '@/constants/theme';
 
 /** How a category phrases the optional `year` on a date. */
 export type YearMode = 'age' | 'years' | 'none';
@@ -17,9 +17,11 @@ export interface Category {
 
 /**
  * How a date repeats. `annual` (default) and `monthly` ignore the year; `once`
- * and `everyNYears` use `year` as the anchor (so they need a year set).
+ * and `everyNYears` use `year` as the anchor (so they need a year set); `custom`
+ * is a hand-picked list of specific dates (`customDates`) that need not share a
+ * day-of-month — for events that move around (festivals, irregular meetings).
  */
-export type RecurrenceType = 'annual' | 'monthly' | 'once' | 'everyNYears';
+export type RecurrenceType = 'annual' | 'monthly' | 'once' | 'everyNYears' | 'custom';
 
 export interface ImportantDate {
   id: string;
@@ -35,10 +37,16 @@ export interface ImportantDate {
   recurrence?: RecurrenceType;
   /** Interval in years for `everyNYears` (>= 2). */
   recurrenceYears?: number;
+  /** Specific ISO dates (YYYY-MM-DD) for `custom` recurrence, ascending. */
+  customDates?: string[];
   /** Days-before the date that a reminder fires. Absent ⇒ DEFAULT_LEAD_DAYS. */
   leadDays?: number[];
   /** Master on/off for this date's reminders. Absent ⇒ true. */
   remindersEnabled?: boolean;
+  /** Also email the reminder (in addition to push). Requires a signed-in account. */
+  emailReminders?: boolean;
+  /** ISO date (YYYY-MM-DD) of an occurrence the user marked handled (reminders skipped). */
+  handledOccurrence?: string;
   createdAt: number;
 }
 
@@ -57,6 +65,7 @@ export const RECURRENCE_OPTIONS: { type: RecurrenceType; label: string }[] = [
   { type: 'annual', label: 'Every year' },
   { type: 'monthly', label: 'Every month' },
   { type: 'everyNYears', label: 'Every N years' },
+  { type: 'custom', label: 'Custom dates' },
   { type: 'once', label: 'One-off' },
 ];
 
@@ -90,10 +99,28 @@ export function leadDaysOf(date: ImportantDate): number[] {
   return date.leadDays && date.leadDays.length ? date.leadDays : DEFAULT_LEAD_DAYS;
 }
 
+/** Sorted, de-duplicated custom dates (ISO YYYY-MM-DD) for a custom-recurrence date. */
+export function customDatesOf(date: ImportantDate): string[] {
+  return Array.from(new Set((date.customDates ?? []).filter(Boolean))).sort();
+}
+
+/** Parse an ISO YYYY-MM-DD into a local-midnight Date (no timezone drift). */
+function parseISODate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
 /** The next occurrence of this date (today counts). Past one-offs return their own past date. */
 export function nextOccurrence(date: ImportantDate, from: Date = new Date()): Date {
   const today = startOfDay(from);
   const rec = recurrenceOf(date);
+
+  if (rec === 'custom') {
+    const list = customDatesOf(date);
+    if (list.length === 0) return occOf(today.getFullYear(), date.month - 1, date.day);
+    const todayISO = toISODate(today);
+    return parseISODate(list.find((iso) => iso >= todayISO) ?? list[list.length - 1]);
+  }
 
   if (rec === 'once') {
     const y = date.year ?? today.getFullYear();
@@ -127,6 +154,22 @@ export function nextOccurrence(date: ImportantDate, from: Date = new Date()): Da
   return next;
 }
 
+function toISODate(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/** ISO (YYYY-MM-DD) of this date's next occurrence — the key used for "handled". */
+export function occurrenceISO(date: ImportantDate, from: Date = new Date()): string {
+  return toISODate(nextOccurrence(date, from));
+}
+
+/** True when the user has marked the current upcoming occurrence as handled. */
+export function isHandled(date: ImportantDate, from: Date = new Date()): boolean {
+  return !!date.handledOccurrence && date.handledOccurrence === occurrenceISO(date, from);
+}
+
 /** Days until the next occurrence (0 = today; negative = a past one-off). */
 export function daysUntilNext(date: ImportantDate, from: Date = new Date()): number {
   const today = startOfDay(from);
@@ -141,10 +184,10 @@ export function upcomingYears(date: ImportantDate, from: Date = new Date()): num
 }
 
 export function urgencyColor(daysLeft: number): string {
-  if (daysLeft < 0) return Colors.textMuted;
-  if (daysLeft === 0) return Colors.today;
-  if (daysLeft <= 7) return Colors.soon;
-  return Colors.far;
+  if (daysLeft < 0) return Urgency.passed;
+  if (daysLeft === 0) return Urgency.today;
+  if (daysLeft <= 7) return Urgency.soon;
+  return Urgency.far;
 }
 
 export function countdownLabel(daysLeft: number): string {
@@ -157,6 +200,11 @@ export function countdownLabel(daysLeft: number): string {
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export function formatDate(date: ImportantDate): string {
+  // Custom dates land on a specific calendar day — show the next one with year.
+  if (recurrenceOf(date) === 'custom') {
+    const next = nextOccurrence(date);
+    return `${MONTHS[next.getMonth()]} ${next.getDate()}, ${next.getFullYear()}`;
+  }
   // One-offs are a specific calendar day, so include the year.
   const base = `${MONTHS[date.month - 1]} ${date.day}`;
   return recurrenceOf(date) === 'once' && date.year ? `${base}, ${date.year}` : base;
@@ -164,8 +212,9 @@ export function formatDate(date: ImportantDate): string {
 
 /** Builds the "turns 30" / "8 years" phrase for a date under a category, if applicable. */
 export function yearsPhrase(date: ImportantDate, category?: Category): string | undefined {
-  // For one-offs the year is the event's own year, not a reference to count from.
-  if (recurrenceOf(date) === 'once') return undefined;
+  // For one-offs / custom dates the year is the event's own, not a count-from reference.
+  const rec = recurrenceOf(date);
+  if (rec === 'once' || rec === 'custom') return undefined;
   const years = upcomingYears(date);
   if (years === undefined || !category || category.yearMode === 'none') return undefined;
   if (category.yearMode === 'age') return `turns ${years}`;
@@ -180,6 +229,10 @@ export function recurrenceLabel(date: ImportantDate): string {
       return 'One-off';
     case 'everyNYears':
       return `Every ${date.recurrenceYears ?? 2} years`;
+    case 'custom': {
+      const n = customDatesOf(date).length;
+      return `Custom · ${n} ${n === 1 ? 'date' : 'dates'}`;
+    }
     default:
       return 'Every year';
   }

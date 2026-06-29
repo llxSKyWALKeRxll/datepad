@@ -1,15 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useMemo } from 'react';
 import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Radius, Spacing, ThemeColors } from '@/constants/theme';
 import {
   countdownLabel,
   daysUntilNext,
   formatDate,
   formatTime,
+  isHandled,
   leadSummary,
+  occurrenceISO,
   recurrenceLabel,
   recurrenceOf,
   shareText,
@@ -17,11 +20,14 @@ import {
   yearsPhrase,
 } from '@/lib/dates';
 import { useStore } from '@/lib/store';
+import { useColors } from '@/lib/theme';
 
 export default function DateDetailScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getDate, getCategory, deleteDate } = useStore();
+  const { getDate, getCategory, deleteDate, updateDate } = useStore();
+  const c = useColors();
+  const styles = useMemo(() => makeStyles(c), [c]);
 
   const date = getDate(id);
 
@@ -41,8 +47,15 @@ export default function DateDetailScreen() {
   const color = urgencyColor(days);
   const years = yearsPhrase(date, category);
 
+  const handled = isHandled(date);
+  const canHandle = daysUntilNext(date) >= 0;
+
   function onShare() {
     Share.share({ message: shareText(date!, category) }).catch(() => {});
+  }
+
+  function onToggleHandled() {
+    updateDate(date!.id, { handledOccurrence: handled ? undefined : occurrenceISO(date!) });
   }
 
   function onDelete() {
@@ -63,14 +76,14 @@ export default function DateDetailScreen() {
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.topbar}>
         <Pressable onPress={() => router.back()} hitSlop={10} style={styles.iconBtn}>
-          <Ionicons name="chevron-back" size={26} color={Colors.text} />
+          <Ionicons name="chevron-back" size={26} color={c.text} />
         </Pressable>
         <View style={styles.topActions}>
           <Pressable onPress={onShare} hitSlop={10} style={styles.iconBtn}>
-            <Ionicons name="share-outline" size={22} color={Colors.text} />
+            <Ionicons name="share-outline" size={22} color={c.text} />
           </Pressable>
           <Pressable onPress={onDelete} hitSlop={10} style={styles.iconBtn}>
-            <Ionicons name="trash-outline" size={22} color={Colors.accent} />
+            <Ionicons name="trash-outline" size={22} color={c.accent} />
           </Pressable>
         </View>
       </View>
@@ -94,18 +107,33 @@ export default function DateDetailScreen() {
         {formatTime(date) ? (
           <InfoRow icon="alarm-outline" label="Time" value={formatTime(date)!} />
         ) : null}
-        {date.year && recurrenceOf(date) !== 'once' ? (
+        {date.year && recurrenceOf(date) !== 'once' && recurrenceOf(date) !== 'custom' ? (
           <InfoRow icon="time-outline" label="Since" value={String(date.year)} />
         ) : null}
         <InfoRow icon="notifications-outline" label="Remind" value={leadSummary(date)} />
         {date.note ? <InfoRow icon="document-text-outline" label="Note" value={date.note} /> : null}
       </View>
 
+      {canHandle && (
+        <Pressable
+          onPress={onToggleHandled}
+          style={[styles.handledBtn, handled && styles.handledBtnActive]}>
+          <Ionicons
+            name={handled ? 'checkmark-circle' : 'checkmark-circle-outline'}
+            size={20}
+            color={handled ? '#fff' : c.far}
+          />
+          <Text style={[styles.handledText, handled && styles.handledTextActive]}>
+            {handled ? 'Handled — reminders off · undo' : 'Mark as handled'}
+          </Text>
+        </Pressable>
+      )}
+
       <Pressable
         onPress={() => router.push({ pathname: '/edit/[id]', params: { id: date.id } })}
         style={({ pressed }) => [
           styles.editBtn,
-          { backgroundColor: pressed ? Colors.accentPressed : Colors.accent },
+          { backgroundColor: pressed ? c.accentPressed : c.accent },
         ]}>
         <Ionicons name="create-outline" size={20} color="#fff" />
         <Text style={styles.editText}>Edit date</Text>
@@ -123,20 +151,22 @@ function InfoRow({
   label: string;
   value: string;
 }) {
+  const c = useColors();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
     <View style={styles.infoRow}>
-      <Ionicons name={icon} size={20} color={Colors.accent} />
+      <Ionicons name={icon} size={20} color={c.accent} />
       <Text style={styles.infoLabel}>{label}</Text>
       <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: Colors.background, paddingHorizontal: Spacing.lg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  screen: { flex: 1, backgroundColor: c.background, paddingHorizontal: Spacing.lg },
   center: { alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
-  missing: { fontSize: 16, color: Colors.textMuted },
-  link: { fontSize: 16, color: Colors.accent, fontWeight: '700' },
+  missing: { fontSize: 16, color: c.textMuted },
+  link: { fontSize: 16, color: c.accent, fontWeight: '700' },
   topbar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -150,15 +180,15 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: 44,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   emoji: { fontSize: 44 },
-  name: { fontSize: 28, fontWeight: '800', color: Colors.text, marginTop: Spacing.md },
-  meta: { fontSize: 15, color: Colors.textMuted, marginTop: 4 },
+  name: { fontSize: 28, fontWeight: '800', color: c.text, marginTop: Spacing.md },
+  meta: { fontSize: 15, color: c.textMuted, marginTop: 4 },
   badge: {
     marginTop: Spacing.md,
     paddingHorizontal: Spacing.md,
@@ -167,10 +197,10 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   infoCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderRadius: Radius.md,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     overflow: 'hidden',
   },
   infoRow: {
@@ -180,10 +210,24 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: Spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.border,
+    borderBottomColor: c.border,
   },
-  infoLabel: { fontSize: 15, color: Colors.textMuted, width: 56 },
-  infoValue: { flex: 1, fontSize: 16, color: Colors.text, fontWeight: '600' },
+  infoLabel: { fontSize: 15, color: c.textMuted, width: 56 },
+  infoValue: { flex: 1, fontSize: 16, color: c.text, fontWeight: '600' },
+  handledBtn: {
+    flexDirection: 'row',
+    gap: 8,
+    height: 50,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: c.far,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.lg,
+  },
+  handledBtnActive: { backgroundColor: c.far, borderColor: c.far },
+  handledText: { color: c.far, fontSize: 15, fontWeight: '700' },
+  handledTextActive: { color: '#fff' },
   editBtn: {
     flexDirection: 'row',
     gap: 8,
@@ -191,7 +235,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: Spacing.lg,
+    marginTop: Spacing.md,
   },
   editText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

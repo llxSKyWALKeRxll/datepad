@@ -29,7 +29,9 @@ import {
   leadDaysOf,
   recurrenceOf,
 } from '@/lib/dates';
+import { refreshPushTokenIfGranted } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
+import { updateWidget } from '@/lib/widget';
 
 const DATES_KEY = 'datepad.dates.v1';
 const CUSTOM_CATS_KEY = 'datepad.customcats.v1';
@@ -117,8 +119,11 @@ function dateToRow(d: ImportantDate, userId: string) {
     note: d.note ?? null,
     recurrence: recurrenceOf(d),
     recurrence_years: d.recurrenceYears ?? null,
+    custom_dates: d.customDates && d.customDates.length ? d.customDates : null,
     lead_days: leadDaysOf(d),
     reminders_enabled: d.remindersEnabled ?? true,
+    email_reminders: d.emailReminders ?? false,
+    handled_occurrence: d.handledOccurrence ?? null,
     created_at: new Date(d.createdAt).toISOString(),
   };
 }
@@ -136,8 +141,11 @@ function rowToDate(r: any): ImportantDate {
     note: r.note ?? undefined,
     recurrence: r.recurrence ?? undefined,
     recurrenceYears: r.recurrence_years ?? undefined,
+    customDates: r.custom_dates ?? undefined,
     leadDays: r.lead_days ?? undefined,
     remindersEnabled: r.reminders_enabled ?? undefined,
+    emailReminders: r.email_reminders ?? undefined,
+    handledOccurrence: r.handled_occurrence ?? undefined,
     createdAt: new Date(r.created_at).getTime(),
   };
 }
@@ -180,6 +188,23 @@ async function migrateLocalToCloud(userId: string): Promise<void> {
   await AsyncStorage.setItem(flagKey, '1');
 }
 
+/**
+ * Keep the user's profile timezone current so server reminders fire at their
+ * local morning. Runs on every signed-in load (timezone can change when the
+ * user travels); only inserts the row if missing, otherwise updates tz.
+ */
+async function syncProfileTimezone(userId: string): Promise<void> {
+  let tz = 'UTC';
+  try {
+    tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    // Intl unavailable — fall back to UTC.
+  }
+  await supabase
+    .from('profiles')
+    .upsert({ user_id: userId, timezone: tz, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+}
+
 export function DatesProvider({ children }: PropsWithChildren) {
   const { session, initializing } = useAuth();
   const userId = session?.user?.id ?? null;
@@ -209,6 +234,8 @@ export function DatesProvider({ children }: PropsWithChildren) {
       setLoaded(false);
       if (userId) {
         await migrateLocalToCloud(userId);
+        syncProfileTimezone(userId).catch(() => {});
+        refreshPushTokenIfGranted(userId).catch(() => {});
         const [dRes, cRes] = await Promise.all([
           supabase.from('important_dates').select('*'),
           supabase.from('categories').select('*'),
@@ -229,6 +256,11 @@ export function DatesProvider({ children }: PropsWithChildren) {
       cancelled = true;
     };
   }, [userId, initializing]);
+
+  // Keep the Android home-screen widget in sync with the current dates.
+  useEffect(() => {
+    if (loaded) updateWidget(dates, categories).catch(() => {});
+  }, [dates, categories, loaded]);
 
   const value = useMemo<StoreValue>(() => {
     const persistLocalDates = (next: ImportantDate[]) =>

@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
 
-import { Colors, Radius } from '@/constants/theme';
+import { Radius } from '@/constants/theme';
+import { useColors } from '@/lib/theme';
 
 export function PrimaryButton({
   label,
@@ -11,12 +12,13 @@ export function PrimaryButton({
   onPress?: () => void;
   style?: ViewStyle;
 }) {
+  const c = useColors();
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: pressed ? Colors.accentPressed : Colors.accent },
+        { backgroundColor: pressed ? c.accentPressed : c.accent },
         style,
       ]}>
       <Text style={styles.label}>{label}</Text>

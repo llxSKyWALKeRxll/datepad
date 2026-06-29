@@ -4,16 +4,19 @@
  * the cloud (migration handled in the store). Two steps: email → 6-digit code.
  */
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Radius, Spacing, ThemeColors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
+import { useColors } from '@/lib/theme';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function AccountCard() {
   const { session, sendCode, verifyCode, signOut } = useAuth();
+  const c = useColors();
+  const styles = useMemo(() => makeStyles(c), [c]);
 
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
@@ -59,7 +62,7 @@ export function AccountCard() {
       <View style={styles.card}>
         <View style={styles.syncedRow}>
           <View style={styles.syncedBadge}>
-            <Ionicons name="cloud-done" size={20} color={Colors.far} />
+            <Ionicons name="cloud-done" size={20} color={c.far} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Synced</Text>
@@ -86,7 +89,7 @@ export function AccountCard() {
           value={email}
           onChangeText={setEmail}
           placeholder="you@example.com"
-          placeholderTextColor={Colors.textMuted}
+          placeholderTextColor={c.textMuted}
           autoCapitalize="none"
           keyboardType="email-address"
           autoComplete="email"
@@ -110,7 +113,7 @@ export function AccountCard() {
         value={code}
         onChangeText={(t) => setCode(t.replace(/[^0-9]/g, ''))}
         placeholder="123456"
-        placeholderTextColor={Colors.textMuted}
+        placeholderTextColor={c.textMuted}
         keyboardType="number-pad"
         maxLength={6}
         style={[styles.input, styles.codeInput]}
@@ -128,32 +131,32 @@ export function AccountCard() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
   card: {
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderRadius: Radius.md,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     padding: Spacing.lg,
     gap: Spacing.sm,
   },
-  title: { fontSize: 17, fontWeight: '800', color: Colors.text },
-  subtle: { fontSize: 13, color: Colors.textMuted, lineHeight: 19 },
+  title: { fontSize: 17, fontWeight: '800', color: c.text },
+  subtle: { fontSize: 13, color: c.textMuted, lineHeight: 19 },
   input: {
-    backgroundColor: Colors.background,
+    backgroundColor: c.background,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     borderRadius: Radius.md,
     paddingHorizontal: Spacing.md,
     height: 50,
     fontSize: 16,
-    color: Colors.text,
+    color: c.text,
     marginTop: Spacing.xs,
   },
   codeInput: { textAlign: 'center', letterSpacing: 8, fontSize: 22, fontWeight: '700' },
-  error: { fontSize: 13, color: Colors.today, fontWeight: '600' },
+  error: { fontSize: 13, color: c.today, fontWeight: '600' },
   primaryBtn: {
-    backgroundColor: Colors.accent,
+    backgroundColor: c.accent,
     borderRadius: Radius.md,
     height: 50,
     alignItems: 'center',
@@ -164,22 +167,22 @@ const styles = StyleSheet.create({
   primaryText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   secondaryBtn: {
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     borderRadius: Radius.md,
     height: 46,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: Spacing.xs,
   },
-  secondaryText: { color: Colors.text, fontSize: 15, fontWeight: '700' },
+  secondaryText: { color: c.text, fontSize: 15, fontWeight: '700' },
   linkBtn: { alignItems: 'center', paddingVertical: Spacing.xs },
-  linkText: { color: Colors.accent, fontSize: 14, fontWeight: '600' },
+  linkText: { color: c.accent, fontSize: 14, fontWeight: '600' },
   syncedRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   syncedBadge: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.background,
+    backgroundColor: c.background,
     alignItems: 'center',
     justifyContent: 'center',
   },

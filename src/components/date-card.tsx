@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { Radius, Spacing, ThemeColors } from '@/constants/theme';
 import {
   countdownLabel,
   daysUntilNext,
@@ -12,9 +13,12 @@ import {
   yearsPhrase,
 } from '@/lib/dates';
 import { useStore } from '@/lib/store';
+import { useColors } from '@/lib/theme';
 
 export function DateCard({ date, onPress }: { date: ImportantDate; onPress?: () => void }) {
   const { getCategory } = useStore();
+  const c = useColors();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const category = getCategory(date.categoryId);
 
   const days = daysUntilNext(date);
@@ -45,19 +49,19 @@ export function DateCard({ date, onPress }: { date: ImportantDate; onPress?: () 
       <View style={[styles.badge, { backgroundColor: color }]}>
         <Text style={styles.badgeText}>{countdownLabel(days)}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+      <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderRadius: Radius.md,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     padding: Spacing.md,
     gap: Spacing.sm,
   },
@@ -66,14 +70,14 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.background,
+    backgroundColor: c.background,
     alignItems: 'center',
     justifyContent: 'center',
   },
   emoji: { fontSize: 22 },
   middle: { flex: 1, marginLeft: 4 },
-  name: { fontSize: 17, fontWeight: '700', color: Colors.text },
-  sub: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
+  name: { fontSize: 17, fontWeight: '700', color: c.text },
+  sub: { fontSize: 13, color: c.textMuted, marginTop: 2 },
   badge: {
     paddingHorizontal: Spacing.sm,
     paddingVertical: 6,

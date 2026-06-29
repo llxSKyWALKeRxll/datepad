@@ -1,7 +1,7 @@
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -16,8 +16,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/primary-button';
-import { Colors, Radius, Spacing } from '@/constants/theme';
+import { SelectSheet } from '@/components/select-sheet';
+import { Radius, Spacing, ThemeColors } from '@/constants/theme';
 import {
+  customDatesOf,
   DEFAULT_LEAD_DAYS,
   ImportantDate,
   leadLabel,
@@ -26,6 +28,7 @@ import {
   RecurrenceType,
 } from '@/lib/dates';
 import { useStore } from '@/lib/store';
+import { useColors } from '@/lib/theme';
 
 const FULL_MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -46,6 +49,20 @@ function seedTime(existing?: ImportantDate): Date {
   return d;
 }
 
+function isoOf(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+const SHORT_MONTHS = FULL_MONTHS.map((m) => m.slice(0, 3));
+
+/** "Aug 20, 2026" for a custom-date chip. */
+function formatChip(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${SHORT_MONTHS[(m || 1) - 1]} ${d}, ${y}`;
+}
+
 function formatTimeOfDay(d: Date): string {
   const h = d.getHours();
   const m = d.getMinutes();
@@ -56,7 +73,9 @@ function formatTimeOfDay(d: Date): string {
 
 export function DateForm({ existing }: { existing?: ImportantDate }) {
   const insets = useSafeAreaInsets();
-  const { categories, addDate, updateDate, addCategory } = useStore();
+  const { categories, addDate, updateDate, addCategory, synced } = useStore();
+  const c = useColors();
+  const styles = useMemo(() => makeStyles(c), [c]);
 
   const isEdit = !!existing;
   const [name, setName] = useState(existing?.name ?? '');
@@ -73,8 +92,17 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
   const [recurrence, setRecurrence] = useState<RecurrenceType>(existing?.recurrence ?? 'annual');
   const [recurrenceYears, setRecurrenceYears] = useState(String(existing?.recurrenceYears ?? 4));
 
+  const [tagSheet, setTagSheet] = useState(false);
+
+  // Custom-recurrence: a hand-picked list of ISO dates.
+  const [customDates, setCustomDates] = useState<string[]>(() =>
+    existing ? customDatesOf(existing) : [],
+  );
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
+
   const [remindersEnabled, setRemindersEnabled] = useState(existing?.remindersEnabled !== false);
   const [leadDays, setLeadDays] = useState<number[]>(existing?.leadDays ?? DEFAULT_LEAD_DAYS);
+  const [emailReminders, setEmailReminders] = useState(existing?.emailReminders ?? false);
 
   const [note, setNote] = useState(existing?.note ?? '');
 
@@ -106,6 +134,19 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
     setTimeValue(picked);
   }
 
+  function onCustomDateChange(event: DateTimePickerEvent, picked?: Date) {
+    if (Platform.OS !== 'ios') setShowCustomPicker(false);
+    if (event.type === 'dismissed' || !picked) return;
+    const iso = isoOf(picked);
+    setCustomDates((prev) =>
+      prev.includes(iso) ? prev : [...prev, iso].sort(),
+    );
+  }
+
+  function removeCustomDate(iso: string) {
+    setCustomDates((prev) => prev.filter((x) => x !== iso));
+  }
+
   function confirmNewTag() {
     if (!newTagLabel.trim()) {
       Alert.alert('Name your tag', 'Give the new tag a short name.');
@@ -124,20 +165,43 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
       return;
     }
 
+    const isCustom = recurrence === 'custom';
+    const custom = Array.from(new Set(customDates)).sort();
+    if (isCustom && custom.length === 0) {
+      Alert.alert('Add a date', 'Pick at least one date for this custom schedule.');
+      return;
+    }
+
+    // For custom, month/day/year mirror the next (or last) date so list cards,
+    // the widget, and "since" rows have a concrete day to fall back on.
+    let month = dateValue.getMonth() + 1;
+    let day = dateValue.getDate();
+    let year: number | undefined = showYear ? dateValue.getFullYear() : undefined;
+    if (isCustom) {
+      const todayISO = isoOf(new Date());
+      const rep = custom.find((d) => d >= todayISO) ?? custom[custom.length - 1];
+      const [ry, rm, rd] = rep.split('-').map(Number);
+      month = rm;
+      day = rd;
+      year = ry;
+    }
+
     const years = Math.max(parseInt(recurrenceYears, 10) || 2, 2);
     const payload = {
       name: name.trim(),
       categoryId,
-      month: dateValue.getMonth() + 1,
-      day: dateValue.getDate(),
-      year: showYear ? dateValue.getFullYear() : undefined,
+      month,
+      day,
+      year,
       hour: timeEnabled ? timeValue.getHours() : undefined,
       minute: timeEnabled ? timeValue.getMinutes() : undefined,
       note: note.trim() || undefined,
       recurrence,
       recurrenceYears: recurrence === 'everyNYears' ? years : undefined,
+      customDates: isCustom ? custom : undefined,
       leadDays: remindersEnabled ? [...leadDays].sort((a, b) => a - b) : [],
       remindersEnabled,
+      emailReminders: remindersEnabled && synced ? emailReminders : false,
     };
     if (isEdit) updateDate(existing!.id, payload);
     else addDate(payload);
@@ -148,12 +212,14 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
     ? `${FULL_MONTHS[dateValue.getMonth()]} ${dateValue.getDate()}, ${dateValue.getFullYear()}`
     : `${FULL_MONTHS[dateValue.getMonth()]} ${dateValue.getDate()}`;
 
+  const selectedCategory = categories.find((cat) => cat.id === categoryId);
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top + Spacing.sm }]}>
       <View style={styles.topbar}>
         <Text style={styles.title}>{isEdit ? 'Edit date' : 'Add a date'}</Text>
         <Pressable onPress={() => router.back()} hitSlop={10} style={styles.close}>
-          <Ionicons name="close" size={24} color={Colors.textMuted} />
+          <Ionicons name="close" size={24} color={c.textMuted} />
         </Pressable>
       </View>
 
@@ -163,31 +229,36 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
           value={name}
           onChangeText={setName}
           placeholder="e.g. Mom, Alex & Sam, Passport renewal"
-          placeholderTextColor={Colors.textMuted}
+          placeholderTextColor={c.textMuted}
           style={styles.input}
         />
 
         <Text style={styles.label}>Tag</Text>
-        <View style={styles.chips}>
-          {categories.map((c) => {
-            const active = c.id === categoryId;
-            return (
-              <Pressable
-                key={c.id}
-                onPress={() => setCategoryId(c.id)}
-                style={[styles.chip, active && styles.chipActive]}>
-                <Text style={styles.chipEmoji}>{c.emoji}</Text>
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>{c.label}</Text>
-              </Pressable>
-            );
-          })}
-          <Pressable
-            onPress={() => setCreatingTag((v) => !v)}
-            style={[styles.chip, styles.chipNew]}>
-            <Ionicons name={creatingTag ? 'close' : 'add'} size={16} color={Colors.accent} />
-            <Text style={[styles.chipText, { color: Colors.accent }]}>New tag</Text>
-          </Pressable>
-        </View>
+        <Pressable onPress={() => setTagSheet(true)} style={styles.pickerField}>
+          <Text style={styles.chipEmoji}>{selectedCategory?.emoji ?? '📌'}</Text>
+          <Text style={styles.pickerValue}>{selectedCategory?.label ?? 'Choose a tag'}</Text>
+          <Ionicons name="chevron-down" size={18} color={c.textMuted} />
+        </Pressable>
+        <SelectSheet
+          visible={tagSheet}
+          title="Choose a tag"
+          searchable={categories.length > 6}
+          options={categories.map((cat) => ({ value: cat.id, label: cat.label, emoji: cat.emoji }))}
+          selected={categoryId}
+          onSelect={setCategoryId}
+          onClose={() => setTagSheet(false)}
+          footer={
+            <Pressable
+              onPress={() => {
+                setTagSheet(false);
+                setCreatingTag(true);
+              }}
+              style={styles.sheetNewTag}>
+              <Ionicons name="add" size={18} color={c.accent} />
+              <Text style={styles.sheetNewTagText}>New tag</Text>
+            </Pressable>
+          }
+        />
 
         {creatingTag && (
           <View style={styles.newTagPanel}>
@@ -195,7 +266,7 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
               value={newTagEmoji}
               onChangeText={setNewTagEmoji}
               placeholder="📌"
-              placeholderTextColor={Colors.textMuted}
+              placeholderTextColor={c.textMuted}
               maxLength={2}
               style={[styles.input, styles.emojiInput]}
             />
@@ -203,7 +274,7 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
               value={newTagLabel}
               onChangeText={setNewTagLabel}
               placeholder="Tag name (e.g. Bill, Visa, Meeting)"
-              placeholderTextColor={Colors.textMuted}
+              placeholderTextColor={c.textMuted}
               style={[styles.input, { flex: 1 }]}
               onSubmitEditing={confirmNewTag}
               returnKeyType="done"
@@ -243,38 +314,64 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
           </View>
         )}
 
-        <Text style={styles.label}>{recurrence === 'once' ? 'Date' : 'Next date'}</Text>
-        <Pressable onPress={() => setShowDatePicker(true)} style={styles.pickerField}>
-          <Ionicons name="calendar-outline" size={20} color={Colors.accent} />
-          <Text style={styles.pickerValue}>{dateLabel}</Text>
-          <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-        </Pressable>
-        {recurrence === 'monthly' && (
-          <Text style={styles.hint}>Repeats on day {dateValue.getDate()} of every month.</Text>
-        )}
+        {recurrence === 'custom' ? (
+          <>
+            <Text style={styles.label}>Dates</Text>
+            {customDates.length > 0 && (
+              <View style={styles.chips}>
+                {customDates.map((iso) => (
+                  <Pressable
+                    key={iso}
+                    onPress={() => removeCustomDate(iso)}
+                    style={[styles.chip, styles.chipActive]}>
+                    <Text style={[styles.chipText, styles.chipTextActive]}>{formatChip(iso)}</Text>
+                    <Ionicons name="close" size={15} color="#fff" />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            <Pressable
+              onPress={() => setShowCustomPicker(true)}
+              style={[styles.pickerField, { marginTop: customDates.length > 0 ? Spacing.sm : 0 }]}>
+              <Ionicons name="add-circle-outline" size={20} color={c.accent} />
+              <Text style={[styles.pickerValue, { color: c.accent }]}>Add a date</Text>
+            </Pressable>
+            <Text style={styles.hint}>Tap a date to remove it. Reminders use the next upcoming one.</Text>
+            {showCustomPicker && (
+              <DateTimePicker value={new Date()} mode="date" display="default" onChange={onCustomDateChange} />
+            )}
+          </>
+        ) : (
+          <>
+            <Text style={styles.label}>{recurrence === 'once' ? 'Date' : 'Next date'}</Text>
+            <Pressable onPress={() => setShowDatePicker(true)} style={styles.pickerField}>
+              <Ionicons name="calendar-outline" size={20} color={c.accent} />
+              <Text style={styles.pickerValue}>{dateLabel}</Text>
+              <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
+            </Pressable>
+            {recurrence === 'monthly' && (
+              <Text style={styles.hint}>Repeats on day {dateValue.getDate()} of every month.</Text>
+            )}
 
-        {!yearRequired && (
-          <View style={styles.toggleRow}>
-            <View style={styles.toggleText}>
-              <Text style={styles.toggleTitle}>Include year</Text>
-              <Text style={styles.hint}>Shows age / years (e.g. “turns 30”).</Text>
-            </View>
-            <Switch
-              value={includeYear}
-              onValueChange={setIncludeYear}
-              trackColor={{ true: Colors.accent, false: Colors.border }}
-              thumbColor="#fff"
-            />
-          </View>
-        )}
+            {!yearRequired && (
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleText}>
+                  <Text style={styles.toggleTitle}>Include year</Text>
+                  <Text style={styles.hint}>Shows age / years (e.g. “turns 30”).</Text>
+                </View>
+                <Switch
+                  value={includeYear}
+                  onValueChange={setIncludeYear}
+                  trackColor={{ true: c.accent, false: c.border }}
+                  thumbColor="#fff"
+                />
+              </View>
+            )}
 
-        {showDatePicker && (
-          <DateTimePicker
-            value={dateValue}
-            mode="date"
-            display="default"
-            onChange={onDateChange}
-          />
+            {showDatePicker && (
+              <DateTimePicker value={dateValue} mode="date" display="default" onChange={onDateChange} />
+            )}
+          </>
         )}
 
         <View style={styles.toggleRow}>
@@ -285,16 +382,16 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
           <Switch
             value={timeEnabled}
             onValueChange={setTimeEnabled}
-            trackColor={{ true: Colors.accent, false: Colors.border }}
+            trackColor={{ true: c.accent, false: c.border }}
             thumbColor="#fff"
           />
         </View>
 
         {timeEnabled && (
           <Pressable onPress={() => setShowTimePicker(true)} style={styles.pickerField}>
-            <Ionicons name="time-outline" size={20} color={Colors.accent} />
+            <Ionicons name="time-outline" size={20} color={c.accent} />
             <Text style={styles.pickerValue}>{formatTimeOfDay(timeValue)}</Text>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+            <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
           </Pressable>
         )}
 
@@ -315,7 +412,7 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
           <Switch
             value={remindersEnabled}
             onValueChange={setRemindersEnabled}
-            trackColor={{ true: Colors.accent, false: Colors.border }}
+            trackColor={{ true: c.accent, false: c.border }}
             thumbColor="#fff"
           />
         </View>
@@ -338,12 +435,30 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
           </View>
         )}
 
+        {remindersEnabled && (
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleText}>
+              <Text style={styles.toggleTitle}>Also email me</Text>
+              <Text style={styles.hint}>
+                {synced ? 'Sent to your account email too.' : 'Sign in to enable email reminders.'}
+              </Text>
+            </View>
+            <Switch
+              value={synced && emailReminders}
+              onValueChange={setEmailReminders}
+              disabled={!synced}
+              trackColor={{ true: c.accent, false: c.border }}
+              thumbColor="#fff"
+            />
+          </View>
+        )}
+
         <Text style={styles.label}>Note (optional)</Text>
         <TextInput
           value={note}
           onChangeText={setNote}
           placeholder="Gift ideas, hat size, anything…"
-          placeholderTextColor={Colors.textMuted}
+          placeholderTextColor={c.textMuted}
           multiline
           style={[styles.input, styles.note]}
         />
@@ -358,32 +473,32 @@ export function DateForm({ existing }: { existing?: ImportantDate }) {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: Colors.background, paddingHorizontal: Spacing.lg },
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  screen: { flex: 1, backgroundColor: c.background, paddingHorizontal: Spacing.lg },
   topbar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: Spacing.md,
   },
-  title: { fontSize: 24, fontWeight: '800', color: Colors.text },
+  title: { fontSize: 24, fontWeight: '800', color: c.text },
   close: { padding: 4 },
   label: {
     fontSize: 13,
     fontWeight: '700',
-    color: Colors.textMuted,
+    color: c.textMuted,
     marginBottom: Spacing.xs,
     marginTop: Spacing.md,
   },
   input: {
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     borderRadius: Radius.md,
     paddingHorizontal: Spacing.md,
     height: 52,
     fontSize: 16,
-    color: Colors.text,
+    color: c.text,
   },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   chip: {
@@ -393,36 +508,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 42,
     borderRadius: 21,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
   },
-  chipActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
-  chipNew: { borderStyle: 'dashed', borderColor: Colors.accent },
+  chipActive: { backgroundColor: c.accent, borderColor: c.accent },
+  chipNew: { borderStyle: 'dashed', borderColor: c.accent },
   everyRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm },
-  everyText: { fontSize: 15, color: Colors.text, fontWeight: '600' },
+  everyText: { fontSize: 15, color: c.text, fontWeight: '600' },
   everyInput: { width: 64, textAlign: 'center', height: 48 },
   leadChips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: Spacing.sm },
   leadChip: {
     paddingHorizontal: 14,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   chipEmoji: { fontSize: 15 },
-  chipText: { fontSize: 14, fontWeight: '600', color: Colors.text },
+  chipText: { fontSize: 14, fontWeight: '600', color: c.text },
   chipTextActive: { color: '#fff' },
+  sheetNewTag: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 16, paddingHorizontal: Spacing.sm },
+  sheetNewTagText: { fontSize: 16, fontWeight: '700', color: c.accent },
   newTagPanel: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm },
   emojiInput: { width: 56, textAlign: 'center', fontSize: 20 },
   newTagAdd: {
     width: 52,
     height: 52,
     borderRadius: Radius.md,
-    backgroundColor: Colors.accent,
+    backgroundColor: c.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -430,14 +547,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     borderRadius: Radius.md,
     paddingHorizontal: Spacing.md,
     height: 52,
   },
-  pickerValue: { flex: 1, fontSize: 16, color: Colors.text, fontWeight: '600' },
+  pickerValue: { flex: 1, fontSize: 16, color: c.text, fontWeight: '600' },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -445,7 +562,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
   },
   toggleText: { flex: 1, paddingRight: Spacing.md },
-  toggleTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
-  hint: { fontSize: 12, color: Colors.textMuted, marginTop: Spacing.xs },
+  toggleTitle: { fontSize: 15, fontWeight: '700', color: c.text },
+  hint: { fontSize: 12, color: c.textMuted, marginTop: Spacing.xs },
   note: { height: 96, paddingTop: 14, textAlignVertical: 'top' },
 });
